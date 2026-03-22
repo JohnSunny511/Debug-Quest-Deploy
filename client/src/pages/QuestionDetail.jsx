@@ -367,6 +367,8 @@ function QuestionDetail() {
             padding: "1rem",
             display: "flex",
             flexDirection: "column",
+            height: "min(620px, 70vh)",
+            minHeight: "420px",
             maxHeight: "620px",
             width: "100%",
           }}
@@ -377,6 +379,7 @@ function QuestionDetail() {
           <div
             style={{
               flex: 1,
+              minHeight: 0,
               overflowY: "auto",
               backgroundColor: "#0f172a",
               borderRadius: "2rem",
