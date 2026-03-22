@@ -1,0 +1,36 @@
+.App {
+  text-align: center;
+  font-family: sans-serif;
+  padding: 2rem;
+  background: #f8f9fa;
+}
+
+button {
+  margin: 0 10px;
+  padding: 10px 20px;
+  background-color: #333;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #555;
+}
+
+.question-box {
+  margin: 2rem auto;
+  max-width: 600px;
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  text-align: left;
+  box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+pre {
+  background: #eee;
+  padding: 10px;
+  border-radius: 5px;
+}
