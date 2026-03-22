@@ -1,3 +1,5 @@
-const rawApiBaseUrl = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
+const rawApiBaseUrl =
+  process.env.REACT_APP_API_BASE_URL ||
+  (typeof window !== "undefined" ? window.location.origin : "http://localhost:5000");
 
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");

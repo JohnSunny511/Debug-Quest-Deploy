@@ -1,0 +1,10 @@
+{
+  "name": "debug-quest-deploy",
+  "private": true,
+  "scripts": {
+    "install:client": "npm install --prefix client",
+    "install:server": "npm install --prefix server",
+    "install:all": "npm run install:client && npm run install:server",
+    "build": "npm run build --prefix client"
+  }
+}
