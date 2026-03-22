@@ -26,12 +26,27 @@ const connectDB = require('./config/db');  // ✅ import db.js
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
 const sessionSecret = process.env.SESSION_SECRET || process.env.JWT_SECRET;
+const codeExecutionServiceBaseUrl = process.env.CODE_EXECUTION_SERVICE_URL
+  ? process.env.CODE_EXECUTION_SERVICE_URL.replace(/\/+$/, "")
+  : "";
 const executeRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 8,
-  keyPrefix: "judge0-execute",
+  keyPrefix: "code-execute",
   message: "Execution limit reached. Please wait a moment before trying again.",
 });
+
+const LANGUAGE_CONFIG = {
+  50: "c",
+  63: "javascript",
+  71: "python",
+};
+
+const buildExecutionEndpoint = (baseUrl) => {
+  if (!baseUrl) return "";
+  if (/\/api\/v2\/execute$/i.test(baseUrl)) return baseUrl;
+  return `${baseUrl}/api/v2/execute`;
+};
 
 // Middlewares
 app.use(cors());
@@ -80,49 +95,35 @@ app.post("/api/execute", authenticateUser, executeRateLimit, async (req, res) =>
     return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid execution request" });
   }
 
-  if (!process.env.JUDGE0_KEY) {
+  if (!codeExecutionServiceBaseUrl) {
     return res.status(500).json({ error: "Code execution service unavailable" });
   }
 
   const { language_id, code } = parsed.data;
-
-  const headers = {
-    "Content-Type": "application/json",
-    "X-RapidAPI-Key": process.env.JUDGE0_KEY,
-    "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com",
-  };
+  const language = LANGUAGE_CONFIG[language_id];
+  const executionEndpoint = buildExecutionEndpoint(codeExecutionServiceBaseUrl);
 
   try {
-    // submit
-    const submission = await axios.post(
-      "https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=false",
+    const response = await axios.post(
+      executionEndpoint,
       {
-        language_id,
-        source_code: code,
-        stdin: "",
+        language,
+        version: "*",
+        files: [{ content: code }],
       },
-      { headers }
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
     );
 
-    const token = submission.data.token;
-
-    // poll
-    let result;
-    while (true) {
-      const response = await axios.get(
-        `https://judge0-ce.p.rapidapi.com/submissions/${token}?base64_encoded=false`,
-        { headers }
-      );
-
-      result = response.data;
-
-      if (result.status.id > 2) break;
-      await new Promise(r => setTimeout(r, 1500));
-    }
+    const result = response.data || {};
+    const run = result.run || {};
 
     res.json({
-      output: result.stdout || result.stderr || result.compile_output || "No output",
-      status: result.status.description
+      output: run.output || run.stdout || run.stderr || run.compile_output || "No output",
+      status: typeof run.code === "number" ? `Exit code ${run.code}` : "Completed",
     });
 
   } catch (error) {
