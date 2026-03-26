@@ -47,6 +47,14 @@ function withResolvedLanguage(question) {
   return payload;
 }
 
+function toLocalDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 // GET /api/questions/:level
 exports.getQuestionsByLevel = async (req, res) => {
   try {
@@ -132,7 +140,34 @@ exports.submitHandler = async (req, res) => {
     const isCorrect = normalize(code) === normalize(expectedAnswer);
 
     if (isCorrect) {
-      await User.findByIdAndUpdate(req.user.id, { $inc: { points: 10 } });
+      const today = toLocalDateKey(new Date());
+      const user = await User.findById(req.user.id).lean();
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found." });
+      }
+
+      const nextActivity = Array.isArray(user.activity) ? [...user.activity] : [];
+      const existingIndex = nextActivity.findIndex((entry) => entry.date === today);
+
+      if (existingIndex >= 0) {
+        nextActivity[existingIndex] = {
+          date: today,
+          count: Number(nextActivity[existingIndex].count || 0) + 1,
+        };
+      } else {
+        nextActivity.push({ date: today, count: 1 });
+      }
+
+      await User.findByIdAndUpdate(req.user.id, {
+        $set: {
+          activity: nextActivity
+            .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+            .slice(-365),
+        },
+        $inc: { points: 10 },
+      });
+
       return res.json({ message: "Correct! Points awarded." });
     }
 

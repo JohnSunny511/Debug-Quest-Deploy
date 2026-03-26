@@ -5,6 +5,7 @@ import axios from "axios";
 import Editor from "@monaco-editor/react";
 import { countChanges } from "../utils/countCodeChanges";
 import { executeCode } from "../utils/executeCode";
+import { recordLocalLeaderboardActivity } from "../utils/leaderboardActivity";
 import { API_BASE_URL } from "../config/api";
 
 function QuestionDetail() {
@@ -18,6 +19,23 @@ function QuestionDetail() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [pageError, setPageError] = useState("");
+  const [solvedQuestions, setSolvedQuestions] = useState(() => {
+    const stored = localStorage.getItem("debugQuestSolvedQuestions");
+    return stored ? JSON.parse(stored) : [];
+  });
+  const [accuracyStats, setAccuracyStats] = useState(() => {
+    const stored = localStorage.getItem("debugQuestAccuracyStats");
+    return stored ? JSON.parse(stored) : { total: 0, correct: 0 };
+  });
+
+  useEffect(() => {
+    localStorage.setItem("debugQuestSolvedQuestions", JSON.stringify(solvedQuestions));
+  }, [solvedQuestions]);
+
+  useEffect(() => {
+    localStorage.setItem("debugQuestAccuracyStats", JSON.stringify(accuracyStats));
+  }, [accuracyStats]);
+
   const [chatMessages, setChatMessages] = useState([
     {
       role: "assistant",
@@ -92,8 +110,8 @@ function QuestionDetail() {
     try {
       const result = await executeCode(question.language, question.code);
       setOutput(result);
-    } catch (_err) {
-      setOutput("Error running code.");
+    } catch (err) {
+      setOutput(err?.message || "Error running code.");
     }
   };
 
@@ -113,6 +131,37 @@ function QuestionDetail() {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
+      if (typeof res.data?.message === "string" && res.data.message.includes("Correct")) {
+        recordLocalLeaderboardActivity();
+        setAccuracyStats(prev => ({ total: prev.total + 1, correct: prev.correct + 1 }));
+        setSolvedQuestions(prev => prev.includes(question._id) ? prev : [...prev, question._id]);
+
+        // Update Performance Chart State
+        const currentScoreStr = localStorage.getItem("debugQuestPerformanceScore");
+        const currentScore = currentScoreStr ? parseInt(currentScoreStr, 10) : 100;
+        const newScore = currentScore + 10;
+        localStorage.setItem("debugQuestPerformanceScore", newScore.toString());
+        
+        const historyStr = localStorage.getItem("debugQuestPerformanceHistory");
+        let hist = [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: currentScore }];
+        if (historyStr) { try { hist = JSON.parse(historyStr); } catch (e) {} }
+        hist.push({ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: newScore });
+        localStorage.setItem("debugQuestPerformanceHistory", JSON.stringify(hist.slice(-9)));
+
+      } else {
+        setAccuracyStats(prev => ({ total: prev.total + 1, correct: prev.correct }));
+        // Wrong submission Performance Chart State
+        const currentScoreStr = localStorage.getItem("debugQuestPerformanceScore");
+        const currentScore = currentScoreStr ? parseInt(currentScoreStr, 10) : 100;
+        const newScore = Math.max(0, currentScore - 2);
+        localStorage.setItem("debugQuestPerformanceScore", newScore.toString());
+        
+        const historyStr = localStorage.getItem("debugQuestPerformanceHistory");
+        let hist = [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: currentScore }];
+        if (historyStr) { try { hist = JSON.parse(historyStr); } catch (e) {} }
+        hist.push({ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: newScore });
+        localStorage.setItem("debugQuestPerformanceHistory", JSON.stringify(hist.slice(-9)));
+      }
       alert(res.data.message);
     } catch (_err) {
       alert("Submission failed.");
@@ -259,16 +308,20 @@ function QuestionDetail() {
         }}
       >
         <div style={{ flex: "1 1 680px", minWidth: "min(100%, 320px)", paddingLeft: "clamp(0px, 2vw, 18px)", width: "100%" }}>
-          <h1
-            style={{
-              fontSize: "clamp(1.7rem, 5vw, 2.25rem)",
-              fontWeight: "bold",
-              marginBottom: ".5rem",
-              color: "#f8fafc",
-            }}
-          >
-            {question.title}
-          </h1>
+          
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: ".5rem", flexWrap: "wrap", gap: "10px" }}>
+            <h1
+              style={{
+                fontSize: "clamp(1.7rem, 5vw, 2.25rem)",
+                fontWeight: "bold",
+                color: "#f8fafc",
+                margin: 0
+              }}
+            >
+              {question.title}
+            </h1>
+          </div>
+
           <p style={{ fontSize: "1rem", color: "#94a3b8", marginBottom: "1rem" }}>
             Language: {question.language}
           </p>

@@ -40,7 +40,11 @@ export async function executeCode(language, code) {
 
     return response.data.output;
 
-  } catch (_err) {
-    throw new Error("Failed to execute code.");
+  } catch (err) {
+    const message =
+      err.response?.data?.detail ||
+      err.response?.data?.error ||
+      "Failed to execute code.";
+    throw new Error(message);
   }
 }

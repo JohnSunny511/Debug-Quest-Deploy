@@ -2,16 +2,22 @@ const SENSITIVE_PHONE_PATTERN = /(?<!\d)(?:\+?\d[\d\s().-]{7,}\d)(?!\d)/g;
 const SENSITIVE_CARD_PATTERN = /(?<!\d)(?:\d[ -]*?){13,19}(?!\d)/g;
 
 function sanitizeText(value, options = {}) {
-  const { maxLength = 5000, allowNewlines = true } = options;
-  const normalized = String(value ?? "")
+  const { maxLength = 5000, allowNewlines = true, stripHtml = true, preserveFormatting = false } = options;
+  let normalized = String(value ?? "")
     .replace(/\0/g, "")
-    .replace(/\r/g, "")
-    .replace(/<[^>]*>/g, "")
-    .trim();
+    .replace(/\r/g, "");
 
-  const whitespaceSafe = allowNewlines
-    ? normalized.replace(/[^\S\n]+/g, " ")
-    : normalized.replace(/\s+/g, " ");
+  if (stripHtml) {
+    normalized = normalized.replace(/<[^>]*>/g, "");
+  }
+  normalized = normalized.trim();
+
+  let whitespaceSafe = normalized;
+  if (!preserveFormatting) {
+    whitespaceSafe = allowNewlines
+      ? normalized.replace(/[^\S\n]+/g, " ")
+      : normalized.replace(/\s+/g, " ");
+  }
 
   return whitespaceSafe.slice(0, maxLength);
 }

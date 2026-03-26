@@ -89,9 +89,9 @@ exports.createAdminQuestion = async (req, res) => {
       })
       .safeParse({
         questionName: sanitizeText(req.body?.questionName, { maxLength: 120, allowNewlines: false }),
-        questionText: sanitizeFreeText(req.body?.questionText, { maxLength: 20000 }),
-        answerText: sanitizeFreeText(req.body?.answerText, { maxLength: 20000 }),
-        expectedOutcome: sanitizeFreeText(req.body?.expectedOutcome, { maxLength: 20000 }),
+        questionText: sanitizeFreeText(req.body?.questionText, { maxLength: 20000, stripHtml: false, preserveFormatting: true }),
+        answerText: sanitizeFreeText(req.body?.answerText, { maxLength: 20000, stripHtml: false, preserveFormatting: true }),
+        expectedOutcome: sanitizeFreeText(req.body?.expectedOutcome, { maxLength: 20000, stripHtml: false, preserveFormatting: true }),
         difficulty: sanitizeText(req.body?.difficulty, { maxLength: 10, allowNewlines: false }).toLowerCase(),
         language: sanitizeText(req.body?.language, { maxLength: 20, allowNewlines: false }).toLowerCase(),
       });

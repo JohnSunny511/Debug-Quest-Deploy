@@ -10,6 +10,14 @@ function QuestionsList() {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [solvedQuestions, setSolvedQuestions] = useState(() => {
+    const stored = localStorage.getItem("debugQuestSolvedQuestions");
+    return stored ? JSON.parse(stored) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("debugQuestSolvedQuestions", JSON.stringify(solvedQuestions));
+  }, [solvedQuestions]);
 
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -120,20 +128,30 @@ function QuestionsList() {
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#334155")}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#1e293b")}
             >
-              <Link
-                to={`/${level}/${q.id}`}
-                style={{
-                  color: "#3b82f6",
-                  fontSize: "1.125rem",
-                  fontWeight: "600",
-                  textDecoration: "none",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
-                onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
-              >
-                {index + 1}. {q.title}
-              </Link>
-              <p style={{ color: "#94a3b8", fontSize: "0.875rem", marginTop: "0.25rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <input 
+                  type="checkbox" 
+                  checked={solvedQuestions.includes(q._id)} 
+                  onChange={() => {
+                      setSolvedQuestions(prev => prev.includes(q._id) ? prev.filter(id => id !== q._id) : [...prev, q._id]);
+                  }} 
+                  style={{ cursor: "pointer", width: "18px", height: "18px", flexShrink: 0 }}
+                />
+                <Link
+                  to={`/${level}/${q.id}`}
+                  style={{
+                    color: "#3b82f6",
+                    fontSize: "1.125rem",
+                    fontWeight: "600",
+                    textDecoration: "none",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
+                  onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+                >
+                  {index + 1}. {q.title}
+                </Link>
+              </div>
+              <p style={{ color: "#94a3b8", fontSize: "0.875rem", marginTop: "0.25rem", paddingLeft: "30px" }}>
                 Language: {q.language}
               </p>
             </li>

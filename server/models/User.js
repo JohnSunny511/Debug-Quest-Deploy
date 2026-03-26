@@ -9,7 +9,16 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true },
   googleId: { type: String, unique: true, sparse: true },
   role: { type: String, enum: ["admin", "user"], default: "user" },
-  points: { type: Number, default: 0 } 
+  points: { type: Number, default: 0 },
+  activity: {
+    type: [
+      {
+        date: { type: String, required: true },
+        count: { type: Number, default: 0 },
+      },
+    ],
+    default: [],
+  },
 });
 
 // Hash password before saving

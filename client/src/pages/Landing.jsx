@@ -37,6 +37,18 @@ function Landing() {
               >
                 Open Challenges
               </button>
+              <button
+                type="button"
+                className="nav-cta"
+                style={{ backgroundColor: "#ef4444", border: "none", marginLeft: "10px" }}
+                onClick={() => {
+                  localStorage.removeItem("token");
+                  localStorage.removeItem("username");
+                  window.location.href = "/login";
+                }}
+              >
+                Logout
+              </button>
             </>
           ) : (
             <>
