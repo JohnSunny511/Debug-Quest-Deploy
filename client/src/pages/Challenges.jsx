@@ -11,6 +11,27 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import UserTopNav from "../components/UserTopNav";
 import "./Challenges.css";
 
+function createDefaultPerformanceHistory() {
+    return [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: 100 }];
+}
+
+function getUserProgressStorageKey(username, key) {
+    return `debugQuest:${username}:${key}`;
+}
+
+function readUserProgress(username, key, fallbackValue) {
+    if (!username) return fallbackValue;
+
+    const stored = localStorage.getItem(getUserProgressStorageKey(username, key));
+    if (!stored) return fallbackValue;
+
+    try {
+        return JSON.parse(stored);
+    } catch (_error) {
+        return fallbackValue;
+    }
+}
+
 function Challenges() {
     const navigate = useNavigate();
     const [question, setQuestion] = useState(null);
@@ -20,45 +41,51 @@ function Challenges() {
     const [originalCode, setOriginalCode] = useState("");
     const [output, setOutput] = useState("");
     const [username, setUsername] = useState("");
-    const [performanceScore, setPerformanceScore] = useState(() => {
-        const stored = localStorage.getItem("debugQuestPerformanceScore");
-        return stored ? parseInt(stored, 10) : 100;
-    });
-    const [performanceHistory, setPerformanceHistory] = useState(() => {
-        const stored = localStorage.getItem("debugQuestPerformanceHistory");
-        if (stored) {
-            try { return JSON.parse(stored); } catch (e) {}
-        }
-        return [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: 100 }];
-    });
+    const [performanceScore, setPerformanceScore] = useState(100);
+    const [performanceHistory, setPerformanceHistory] = useState(() => createDefaultPerformanceHistory());
     const [leaderboardUsers, setLeaderboardUsers] = useState([]);
     const [questionSummaries, setQuestionSummaries] = useState({
         easy: { count: 0, languages: [] },
         medium: { count: 0, languages: [] },
         hard: { count: 0, languages: [] },
     });
-    const [solvedQuestions, setSolvedQuestions] = useState(() => {
-        const stored = localStorage.getItem("debugQuestSolvedQuestions");
-        return stored ? JSON.parse(stored) : [];
-    });
-    const [accuracyStats, setAccuracyStats] = useState(() => {
-        const stored = localStorage.getItem("debugQuestAccuracyStats");
-        return stored ? JSON.parse(stored) : { total: 0, correct: 0 };
-    });
+    const [solvedQuestions, setSolvedQuestions] = useState([]);
+    const [accuracyStats, setAccuracyStats] = useState({ total: 0, correct: 0 });
     const [currentRank, setCurrentRank] = useState("—");
 
     useEffect(() => {
-        localStorage.setItem("debugQuestSolvedQuestions", JSON.stringify(solvedQuestions));
-    }, [solvedQuestions]);
+        if (!username) {
+            setPerformanceScore(100);
+            setPerformanceHistory(createDefaultPerformanceHistory());
+            setSolvedQuestions([]);
+            setAccuracyStats({ total: 0, correct: 0 });
+            return;
+        }
+
+        const storedPerformanceScore = localStorage.getItem(getUserProgressStorageKey(username, "performanceScore"));
+        const parsedPerformanceScore = storedPerformanceScore ? parseInt(storedPerformanceScore, 10) : NaN;
+
+        setPerformanceScore(Number.isFinite(parsedPerformanceScore) ? parsedPerformanceScore : 100);
+        setPerformanceHistory(readUserProgress(username, "performanceHistory", createDefaultPerformanceHistory()));
+        setSolvedQuestions(readUserProgress(username, "solvedQuestions", []));
+        setAccuracyStats(readUserProgress(username, "accuracyStats", { total: 0, correct: 0 }));
+    }, [username]);
 
     useEffect(() => {
-        localStorage.setItem("debugQuestAccuracyStats", JSON.stringify(accuracyStats));
-    }, [accuracyStats]);
+        if (!username) return;
+        localStorage.setItem(getUserProgressStorageKey(username, "solvedQuestions"), JSON.stringify(solvedQuestions));
+    }, [solvedQuestions, username]);
 
     useEffect(() => {
-        localStorage.setItem("debugQuestPerformanceScore", performanceScore.toString());
-        localStorage.setItem("debugQuestPerformanceHistory", JSON.stringify(performanceHistory));
-    }, [performanceScore, performanceHistory]);
+        if (!username) return;
+        localStorage.setItem(getUserProgressStorageKey(username, "accuracyStats"), JSON.stringify(accuracyStats));
+    }, [accuracyStats, username]);
+
+    useEffect(() => {
+        if (!username) return;
+        localStorage.setItem(getUserProgressStorageKey(username, "performanceScore"), performanceScore.toString());
+        localStorage.setItem(getUserProgressStorageKey(username, "performanceHistory"), JSON.stringify(performanceHistory));
+    }, [performanceScore, performanceHistory, username]);
 
     useEffect(() => {
         let isMounted = true;
