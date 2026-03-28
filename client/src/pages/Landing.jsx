@@ -7,6 +7,7 @@ function Landing() {
   const navigate = useNavigate();
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [username, setUsername] = useState(() => localStorage.getItem("username"));
+  const [role, setRole] = useState(() => localStorage.getItem("role") || "");
 
   useEffect(() => {
     let isMounted = true;
@@ -17,6 +18,7 @@ function Landing() {
         if (!isMounted) return;
         setToken("");
         setUsername("");
+        setRole("");
         return;
       }
 
@@ -27,15 +29,18 @@ function Landing() {
         if (isValid) {
           setToken(localStorage.getItem("token") || "");
           setUsername(localStorage.getItem("username") || "");
+          setRole(localStorage.getItem("role") || "");
           return;
         }
 
         setToken("");
         setUsername("");
+        setRole("");
       } catch (_error) {
         if (!isMounted) return;
         setToken(localStorage.getItem("token") || "");
         setUsername(localStorage.getItem("username") || "");
+        setRole(localStorage.getItem("role") || "");
       }
     };
 
@@ -76,6 +81,15 @@ function Landing() {
               >
                 Open Challenges
               </button>
+              {role === "admin" && (
+                <button
+                  type="button"
+                  className="nav-cta nav-admin"
+                  onClick={() => navigate("/dashboard/internal")}
+                >
+                  Admin Dashboard
+                </button>
+              )}
               <button
                 type="button"
                 className="nav-cta"
@@ -141,6 +155,15 @@ function Landing() {
             >
               View Leaderboard
             </button>
+            {token && role === "admin" && (
+              <button
+                type="button"
+                className="hero-secondary hero-admin"
+                onClick={() => navigate("/dashboard/internal")}
+              >
+                Open Admin Dashboard
+              </button>
+            )}
           </div>
 
           <div className="hero-metrics">

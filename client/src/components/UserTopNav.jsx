@@ -8,13 +8,18 @@ function UserTopNav({ breadcrumbItems = [] }) {
   const menuRef = useRef(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const username = localStorage.getItem("username") || "User";
+  const role = localStorage.getItem("role") || "user";
 
   const navItems = useMemo(
-    () => [
-      { label: "Challenges", path: "/challenges", active: location.pathname !== "/leaderboard" },
-      { label: "LeaderBoard", path: "/leaderboard", active: location.pathname === "/leaderboard" },
-    ],
-    [location.pathname]
+    () =>
+      [
+        { label: "Challenges", path: "/challenges", active: location.pathname !== "/leaderboard" && !location.pathname.startsWith("/dashboard/internal") },
+        { label: "LeaderBoard", path: "/leaderboard", active: location.pathname === "/leaderboard" },
+        role === "admin"
+          ? { label: "Admin Dashboard", path: "/dashboard/internal", active: location.pathname.startsWith("/dashboard/internal") }
+          : null,
+      ].filter(Boolean),
+    [location.pathname, role]
   );
 
   useEffect(() => {
@@ -209,6 +214,28 @@ function UserTopNav({ breadcrumbItems = [] }) {
               <p style={{ margin: "0 0 0.85rem", color: "#f8fafc", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {username}
               </p>
+              {role === "admin" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    navigate("/dashboard/internal");
+                  }}
+                  style={{
+                    width: "100%",
+                    border: "1px solid rgba(14, 165, 233, 0.34)",
+                    borderRadius: "10px",
+                    padding: "0.7rem 0.9rem",
+                    background: "linear-gradient(90deg, rgba(37, 99, 235, 0.95), rgba(14, 116, 144, 0.95))",
+                    color: "white",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    marginBottom: "0.65rem",
+                  }}
+                >
+                  Go To Admin Dashboard
+                </button>
+              )}
               <button
                 type="button"
                 onClick={logout}
