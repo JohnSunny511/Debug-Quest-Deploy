@@ -65,6 +65,7 @@ exports.googleLogin = async (req, res) => {
     res.json({
       token: myToken,
       username: user.username,
+      role: user.role,
       redirectTo: user.role === "admin" ? "/dashboard/internal" : "/challenges",
     });
   } catch (_err) {

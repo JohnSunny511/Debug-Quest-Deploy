@@ -4,16 +4,14 @@ import { useLocation, useNavigate } from "react-router-dom";
 function BackButton() {
   const navigate = useNavigate();
   const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith("/dashboard/internal");
   const hiddenRoutes = ["/", "/login", "/challenges", "/learn", "/dashboard/internal"];
   const isHiddenRoute = hiddenRoutes.includes(location.pathname);
-  const isBuggyRoute = location.pathname === "/buggy";
-  const isQuestionDetailRoute = /^\/(easy|medium|hard)\/[^/]+$/.test(
-    location.pathname
-  );
   const isInternalAdminDetailRoute =
     location.pathname === "/dashboard/internal/questions" ||
-    location.pathname === "/dashboard/internal/chatbot";
-  const forceCornerRoute = isBuggyRoute || isQuestionDetailRoute || isInternalAdminDetailRoute;
+    location.pathname === "/dashboard/internal/chatbot" ||
+    location.pathname === "/dashboard/internal/discussions";
+  const forceCornerRoute = isInternalAdminDetailRoute;
   const buttonRef = useRef(null);
   const [buttonOffset, setButtonOffset] = useState({ top: "16px", left: "16px" });
 
@@ -91,7 +89,7 @@ function BackButton() {
     };
   }, [location.pathname, isHiddenRoute, forceCornerRoute]);
 
-  if (isHiddenRoute) {
+  if (!isAdminRoute || isHiddenRoute) {
     return null;
   }
 

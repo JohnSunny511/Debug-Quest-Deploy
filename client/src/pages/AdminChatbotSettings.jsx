@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { API_BASE_URL } from "../config/api";
+import AdminLogoutButton from "../components/AdminLogoutButton";
 
 const API_BASE = `${API_BASE_URL}/api/dashboard/internal/chatbot`;
 
@@ -187,7 +188,10 @@ function AdminChatbotSettings() {
       }}
     >
       <div style={{ maxWidth: "900px", margin: "0 auto" }}>
-        <h1 style={{ marginTop: 0, marginBottom: "1rem", fontSize: "clamp(1.5rem, 4vw, 2rem)" }}>Admin Chatbot Settings</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+          <h1 style={{ marginTop: 0, marginBottom: 0, fontSize: "clamp(1.5rem, 4vw, 2rem)" }}>Admin Chatbot Settings</h1>
+          <AdminLogoutButton />
+        </div>
 
         <div
           style={{

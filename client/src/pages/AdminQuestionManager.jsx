@@ -1,16 +1,21 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { API_BASE_URL } from "../config/api";
+import AdminLogoutButton from "../components/AdminLogoutButton";
 
 const API_BASE = `${API_BASE_URL}/api/dashboard/internal/questions`;
 
 function AdminQuestionManager() {
   const [questionName, setQuestionName] = useState("");
+  const [description, setDescription] = useState("");
   const [questionText, setQuestionText] = useState("");
   const [answerText, setAnswerText] = useState("");
   const [expectedOutcome, setExpectedOutcome] = useState("");
+  const [hintCount, setHintCount] = useState("0");
+  const [hints, setHints] = useState([]);
   const [language, setLanguage] = useState("python");
   const [difficulty, setDifficulty] = useState("easy");
+  const [maxChangePercentage, setMaxChangePercentage] = useState("20");
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -57,11 +62,27 @@ function AdminQuestionManager() {
 
   const resetForm = () => {
     setQuestionName("");
+    setDescription("");
     setQuestionText("");
     setAnswerText("");
     setExpectedOutcome("");
+    setHintCount("0");
+    setHints([]);
     setLanguage("python");
     setDifficulty("easy");
+    setMaxChangePercentage("20");
+  };
+
+  const updateHintCount = (value) => {
+    const numericValue = Math.max(0, Math.min(10, Number(value) || 0));
+    setHintCount(String(numericValue));
+    setHints((prev) =>
+      Array.from({ length: numericValue }, (_, index) => prev[index] || "")
+    );
+  };
+
+  const updateHintValue = (index, value) => {
+    setHints((prev) => prev.map((hint, hintIndex) => (hintIndex === index ? value : hint)));
   };
 
   const handleAddQuestion = async (event) => {
@@ -70,15 +91,18 @@ function AdminQuestionManager() {
 
     const payload = {
       questionName: questionName.trim(),
+      description: description.trim(),
       questionText: questionText.trim(),
       answerText: answerText.trim(),
       expectedOutcome: expectedOutcome.trim(),
+      hints: hints.map((hint) => hint.trim()).filter(Boolean),
       language,
       difficulty,
+      maxChangePercentage: maxChangePercentage.trim(),
     };
 
-    if (!payload.questionName || !payload.questionText || !payload.answerText) {
-      setStatusMessage("Please fill question name, question text and answer.");
+    if (!payload.questionName || !payload.questionText || !payload.answerText || payload.maxChangePercentage === "") {
+      setStatusMessage("Please fill question name, question text, answer, and max change percentage.");
       return;
     }
 
@@ -157,20 +181,23 @@ function AdminQuestionManager() {
           }}
         >
           <h1 style={{ margin: 0, fontSize: "clamp(1.5rem, 4vw, 2rem)" }}>Admin Question Manager</h1>
-          <button
-            type="button"
-            onClick={() => setShowAddForm((prev) => !prev)}
-            style={{
-              border: "none",
-              borderRadius: "6px",
-              padding: "0.5rem 0.9rem",
-              background: "#2563eb",
-              color: "white",
-              cursor: "pointer",
-            }}
-          >
-            {showAddForm ? "Hide Add Panel" : "Add New Question"}
-          </button>
+          <div style={{ display: "flex", gap: "0.65rem", alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setShowAddForm((prev) => !prev)}
+              style={{
+                border: "none",
+                borderRadius: "6px",
+                padding: "0.5rem 0.9rem",
+                background: "#2563eb",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              {showAddForm ? "Hide Add Panel" : "Add New Question"}
+            </button>
+            <AdminLogoutButton />
+          </div>
         </div>
 
         {showAddForm && (
@@ -251,7 +278,74 @@ function AdminQuestionManager() {
                   <option value="hard">Hard</option>
                 </select>
               </div>
+              <div style={{ width: "220px", maxWidth: "100%" }}>
+                <label style={{ display: "block", marginBottom: "0.4rem", color: "#cbd5e1" }}>
+                  Max Change %
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={maxChangePercentage}
+                  onChange={(event) => setMaxChangePercentage(event.target.value)}
+                  placeholder="e.g. 20"
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    background: "#0f172a",
+                    color: "#f1f5f9",
+                    border: "1px solid #334155",
+                    borderRadius: "8px",
+                    padding: "0.65rem",
+                  }}
+                />
+              </div>
+              <div style={{ width: "180px", maxWidth: "100%" }}>
+                <label style={{ display: "block", marginBottom: "0.4rem", color: "#cbd5e1" }}>
+                  Hint Count
+                </label>
+                <select
+                  value={hintCount}
+                  onChange={(event) => updateHintCount(event.target.value)}
+                  style={{
+                    width: "100%",
+                    background: "#0f172a",
+                    color: "#f1f5f9",
+                    border: "1px solid #334155",
+                    borderRadius: "8px",
+                    padding: "0.55rem",
+                  }}
+                >
+                  {Array.from({ length: 11 }, (_, index) => (
+                    <option key={index} value={index}>
+                      {index}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
+
+            <label style={{ display: "block", marginBottom: "0.4rem", color: "#cbd5e1" }}>
+              Question Description
+            </label>
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Describe the bug, expected behavior, constraints, or debugging goal."
+              rows={4}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                background: "#0f172a",
+                color: "#f1f5f9",
+                border: "1px solid #334155",
+                borderRadius: "8px",
+                padding: "0.7rem",
+                marginBottom: "0.8rem",
+                resize: "vertical",
+              }}
+            />
 
             <label style={{ display: "block", marginBottom: "0.4rem", color: "#cbd5e1" }}>
               Question Text (IDE)
@@ -315,6 +409,35 @@ function AdminQuestionManager() {
                 resize: "vertical",
               }}
             />
+
+            {hints.length > 0 && (
+              <div style={{ marginBottom: "0.8rem" }}>
+                <label style={{ display: "block", marginBottom: "0.5rem", color: "#cbd5e1" }}>
+                  Hints
+                </label>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  {hints.map((hint, index) => (
+                    <textarea
+                      key={`hint-input-${index}`}
+                      value={hint}
+                      onChange={(event) => updateHintValue(index, event.target.value)}
+                      placeholder={`Enter hint ${index + 1}`}
+                      rows={2}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        background: "#0f172a",
+                        color: "#f1f5f9",
+                        border: "1px solid #334155",
+                        borderRadius: "8px",
+                        padding: "0.7rem",
+                        resize: "vertical",
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button
@@ -460,9 +583,39 @@ function AdminQuestionManager() {
                     {isExpanded && (
                       <div style={{ marginTop: "0.7rem" }}>
                         <p style={{ margin: "0 0 0.6rem", color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
+                          <strong>Description:</strong>{" "}
+                          {item.description || "No description added."}
+                        </p>
+                        <p style={{ margin: "0 0 0.6rem", color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
                           <strong>Expected Outcome:</strong>{" "}
                           {item.expectedOutcome || item.answerText || "..."}
                         </p>
+                        <p style={{ margin: "0 0 0.6rem", color: "#cbd5e1" }}>
+                          <strong>Hints:</strong> {Array.isArray(item.hints) ? item.hints.length : 0}
+                        </p>
+                        <p style={{ margin: "0 0 0.6rem", color: "#cbd5e1" }}>
+                          <strong>Max Change %:</strong>{" "}
+                          {item.maxChangePercentage === "" ? "Not set" : item.maxChangePercentage}
+                        </p>
+                        {Array.isArray(item.hints) && item.hints.length > 0 && (
+                          <div style={{ marginBottom: "0.6rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                            {item.hints.map((hint, index) => (
+                              <div
+                                key={`saved-hint-${itemId}-${index}`}
+                                style={{
+                                  background: "#111827",
+                                  border: "1px solid #334155",
+                                  borderRadius: "8px",
+                                  padding: "0.65rem",
+                                  color: "#cbd5e1",
+                                  whiteSpace: "pre-wrap",
+                                }}
+                              >
+                                <strong style={{ color: "#f8fafc" }}>Hint {index + 1}:</strong> {hint}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <div
                           style={{
                             border: "1px solid #334155",

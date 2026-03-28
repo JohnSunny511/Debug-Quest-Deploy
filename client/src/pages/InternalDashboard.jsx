@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import AdminLogoutButton from "../components/AdminLogoutButton";
 
 function InternalDashboard() {
   const navigate = useNavigate();
@@ -30,10 +31,15 @@ function InternalDashboard() {
       }}
     >
       <div style={{ maxWidth: "920px", margin: "0 auto" }}>
-        <h1 style={{ marginTop: 0, fontSize: "clamp(1.6rem, 4vw, 2.4rem)" }}>Internal Dashboard</h1>
-        <p style={{ color: "#94a3b8", maxWidth: "640px" }}>
-          Restricted admin workspace for internal content and chatbot controls.
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap" }}>
+          <div>
+            <h1 style={{ marginTop: 0, fontSize: "clamp(1.6rem, 4vw, 2.4rem)" }}>Internal Dashboard</h1>
+            <p style={{ color: "#94a3b8", maxWidth: "640px" }}>
+              Restricted admin workspace for internal content and chatbot controls.
+            </p>
+          </div>
+          <AdminLogoutButton />
+        </div>
 
         <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginTop: "1.5rem" }}>
           <div style={cardStyle}>
@@ -92,6 +98,27 @@ function InternalDashboard() {
               }}
             >
               Open User Experience
+            </button>
+          </div>
+
+          <div style={cardStyle}>
+            <h2 style={{ marginTop: 0 }}>Discussion Reports</h2>
+            <p style={{ color: "#cbd5e1" }}>
+              Review reported problem discussions and jump directly into the related question page for moderation.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard/internal/discussions")}
+              style={{
+                border: "none",
+                borderRadius: "8px",
+                padding: "0.65rem 1rem",
+                background: "#7c3aed",
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              Open
             </button>
           </div>
         </div>

@@ -73,6 +73,7 @@ exports.login = async (req, res) => {
     res.json({
       token,
       username: user.username,
+      role: user.role,
       redirectTo: user.role === "admin" ? "/dashboard/internal" : "/challenges",
     });
   } catch (_err) {
@@ -83,6 +84,7 @@ exports.login = async (req, res) => {
 exports.getSession = async (req, res) => {
   return res.json({
     username: req.user.username,
+    role: req.user.role,
     homePath: req.user.role === "admin" ? "/dashboard/internal" : "/challenges",
   });
 };

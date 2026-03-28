@@ -2,6 +2,100 @@ const Question = require("../models/Question");
 const User = require("../models/User");
 const mongoose = require("mongoose");
 const { z } = require("zod");
+const axios = require("axios");
+const { calculateChangeMetrics, normalizeLanguage } = require("../utils/codeChangeMetrics");
+
+const LANGUAGE_CONFIG = {
+  python: { version: "3.10.0" },
+  javascript: { version: "18.15.0" },
+  c: { version: "10.2.0" },
+};
+
+function buildExecutionEndpoints(baseUrl) {
+  if (!baseUrl) return [];
+
+  if (/\/(api\/v2\/execute|execute|api\/execute|run|api\/run)$/i.test(baseUrl)) {
+    return [baseUrl];
+  }
+
+  return [
+    `${baseUrl}/api/v2/execute`,
+    `${baseUrl}/execute`,
+    `${baseUrl}/api/execute`,
+    `${baseUrl}/run`,
+    `${baseUrl}/api/run`,
+  ];
+}
+
+async function executeSubmissionCode(language, code) {
+  const normalizedLanguage = normalizeLanguage(language);
+  const languageConfig = LANGUAGE_CONFIG[normalizedLanguage];
+  const baseUrl = process.env.CODE_EXECUTION_SERVICE_URL
+    ? process.env.CODE_EXECUTION_SERVICE_URL.replace(/\/+$/, "")
+    : "";
+
+  if (!languageConfig || !baseUrl) {
+    throw new Error("Code execution service unavailable.");
+  }
+
+  const executionEndpoints = buildExecutionEndpoints(baseUrl);
+  const requestBody = {
+    language: normalizedLanguage,
+    version: languageConfig.version,
+    files: [{ content: code }],
+  };
+
+  let response;
+  let lastError;
+
+  for (const executionEndpoint of executionEndpoints) {
+    try {
+      response = await axios.post(executionEndpoint, requestBody, {
+        headers: { "Content-Type": "application/json" },
+        timeout: 30000,
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (error.response && error.response.status === 400) {
+        break;
+      }
+    }
+  }
+
+  if (!response) {
+    throw lastError || new Error("Execution failed.");
+  }
+
+  const run = response.data?.run || {};
+  const output = run.output || run.stdout || run.stderr || run.compile_output || "";
+  const exitCode = typeof run.code === "number" ? run.code : null;
+
+  return {
+    output: String(output || ""),
+    succeeded: exitCode === 0 && !String(run.stderr || run.compile_output || "").trim(),
+  };
+}
+
+async function resolveExpectedOutput(question) {
+  const configuredExpectedOutput = normalizeOutput(question.expected);
+  const candidateAnswer = String(question.correctAnswer || "").trim();
+
+  if (!candidateAnswer) {
+    return configuredExpectedOutput;
+  }
+
+  try {
+    const executed = await executeSubmissionCode(question.language, candidateAnswer);
+    if (executed.succeeded && normalizeOutput(executed.output)) {
+      return normalizeOutput(executed.output);
+    }
+  } catch (_error) {
+    // Fall back to the stored expected value when the reference answer can't be executed.
+  }
+
+  return configuredExpectedOutput;
+}
 
 function inferLanguageFromCode(value) {
   const text = String(value || "");
@@ -53,6 +147,12 @@ function toLocalDateKey(value = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function normalizeOutput(value) {
+  return String(value ?? "")
+    .replace(/\r/g, "")
+    .trim();
 }
 
 // GET /api/questions/:level
@@ -135,11 +235,41 @@ exports.submitHandler = async (req, res) => {
       return res.status(404).json({ message: "Question not found" });
     }
 
-    const normalize = (str) => String(str ?? "").replace(/\r/g, "").trim();
-    const expectedAnswer = question.correctAnswer ?? question.expected ?? "";
-    const isCorrect = normalize(code) === normalize(expectedAnswer);
+    const executed = await executeSubmissionCode(question.language, code);
+    const expectedOutput = await resolveExpectedOutput(question);
+    const expectedOutputDisplay = String(question.expected || "").trim() || expectedOutput;
 
-    if (isCorrect) {
+    if (!executed.succeeded) {
+      return res.json({
+        message: "Incorrect. Your code did not run successfully.",
+        expectedOutput: expectedOutputDisplay,
+        actualOutput: executed.output,
+      });
+    }
+
+    if (normalizeOutput(executed.output) !== expectedOutput) {
+      return res.json({
+        message: "Incorrect. Your code ran, but the output did not match the expected output.",
+        expectedOutput: expectedOutputDisplay,
+        actualOutput: executed.output,
+      });
+    }
+
+    const changeMetrics = calculateChangeMetrics(question.code || "", code, question.language);
+    const maxChangePercentage =
+      typeof question.maxChangePercentage === "number" ? question.maxChangePercentage : null;
+
+    if (maxChangePercentage !== null && changeMetrics.percentage > maxChangePercentage) {
+      return res.json({
+        message: `Output matched, but points were not awarded because the change percentage (${changeMetrics.percentage}%) exceeded the allowed limit (${maxChangePercentage}%).`,
+        expectedOutput: expectedOutputDisplay,
+        actualOutput: executed.output,
+        changePercentage: changeMetrics.percentage,
+        maxChangePercentage,
+      });
+    }
+
+    {
       const today = toLocalDateKey(new Date());
       const user = await User.findById(req.user.id).lean();
 
@@ -168,13 +298,14 @@ exports.submitHandler = async (req, res) => {
         $inc: { points: 10 },
       });
 
-      return res.json({ message: "Correct! Points awarded." });
+      return res.json({
+        message: "Correct! Points awarded.",
+        expectedOutput: expectedOutputDisplay,
+        actualOutput: executed.output,
+        changePercentage: changeMetrics.percentage,
+        maxChangePercentage,
+      });
     }
-
-    return res.json({
-      message: "Incorrect. Try again!",
-      correctAnswer: expectedAnswer,
-    });
   } catch (_err) {
     res.status(500).json({ message: "Server error." });
   }

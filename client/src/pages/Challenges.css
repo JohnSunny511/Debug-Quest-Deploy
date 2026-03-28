@@ -26,8 +26,8 @@
   z-index: 2;
 }
 
-.globe-side-panel--left  { left: 12px; }
-.globe-side-panel--right { right: 12px; }
+.globe-side-panel--left  { left: 42px; width: 545px; }
+.globe-side-panel--right { right: 42px; width: 515px; }
 
 /* Hide panels on screens where the globe fills its full width
    and there's no blank space on the sides */

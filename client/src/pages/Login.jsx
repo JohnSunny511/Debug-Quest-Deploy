@@ -15,6 +15,9 @@ function Login() {
   const completeLogin = (data, fallbackUsername = username) => {
     localStorage.setItem("token", data.token);
     localStorage.setItem("username", data.username || fallbackUsername);
+    if (data.role) {
+      localStorage.setItem("role", data.role);
+    }
     navigate(data.redirectTo || "/challenges");
   };
 

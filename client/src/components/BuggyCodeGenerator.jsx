@@ -1,18 +1,25 @@
 import React, { useState } from "react";
 import Editor from "@monaco-editor/react";
-import { countChanges } from "../utils/countCodeChanges";
+import { calculateChangePercentage, countChanges } from "../utils/countCodeChanges";
 import { executeCode } from "../utils/executeCode";
 import { API_BASE_URL } from "../config/api";
+import { redirectToLogin } from "../utils/authSession";
+import UserTopNav from "./UserTopNav";
+import { recordLocalLeaderboardActivity } from "../utils/leaderboardActivity";
 
 const AI_API_URL = `${API_BASE_URL}/api/ai/generate`;
+const AI_SUBMIT_URL = `${API_BASE_URL}/api/ai/submit`;
 
 export default function BuggyCodeGenerator() {
   const [question, setQuestion] = useState(null);
   const [loading, setLoading] = useState(false);
   const [changeCount, setChangeCount] = useState(0);
+  const [changePercentage, setChangePercentage] = useState(0);
   const [originalCode, setOriginalCode] = useState("");
   const [output, setOutput] = useState("");
   const [submissionStatus, setSubmissionStatus] = useState("");
+  const [revealedHints, setRevealedHints] = useState([]);
+  const [areHintsVisible, setAreHintsVisible] = useState(false);
 
   const [aiLanguage, setAiLanguage] = useState("python");
   const [aiTopic, setAiTopic] = useState("");
@@ -21,7 +28,10 @@ export default function BuggyCodeGenerator() {
     setQuestion(null);
     setOutput("");
     setChangeCount(0);
+    setChangePercentage(0);
     setSubmissionStatus("");
+    setRevealedHints([]);
+    setAreHintsVisible(false);
     setLoading(true);
 
     try {
@@ -41,10 +51,16 @@ export default function BuggyCodeGenerator() {
 
       setQuestion({
         source: "AI",
+        title: data.title || "AI Bug Fix Challenge",
+        description: data.description || "",
         language: data.language,
         topic: data.topic,
         code: data.buggyCode,
         correctCode: data.correctCode,
+        expectedOutput: data.expectedOutput || "",
+        hints: Array.isArray(data.hints) ? data.hints : [],
+        maxChangePercentage:
+          typeof data.maxChangePercentage === "number" ? data.maxChangePercentage : null,
       });
 
       setOriginalCode(data.buggyCode);
@@ -60,36 +76,79 @@ export default function BuggyCodeGenerator() {
       setOutput("No code to run.");
       return;
     }
-    const result = await executeCode(question.language, question.code); // ✅ dynamic
-    setOutput(result);
+    try {
+      const result = await executeCode(question.language, question.code); // ✅ dynamic
+      setOutput(result);
+    } catch (error) {
+      if (String(error?.message || "").includes("Session expired")) {
+        redirectToLogin();
+        return;
+      }
+      setOutput(error?.message || "Failed to execute code.");
+    }
   };
 
-
-  function normalizeCode(code) {
-    if (!code) return "";
-    return code.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "").replace(/\s+/g, "").trim();
-  }
-
   async function handleSubmit() {
-  if (!question) {
-    setSubmissionStatus("Please generate a question first.");
-    return;
+    if (!question) {
+      setSubmissionStatus("Please generate a question first.");
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(AI_SUBMIT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          language: question.language,
+          originalCode,
+          submittedCode: question.code,
+          expectedOutput: question.expectedOutput,
+          maxChangePercentage: question.maxChangePercentage,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.message || "Submission failed.");
+      }
+
+      if (typeof data?.actualOutput === "string") {
+        setOutput(data.actualOutput);
+      }
+
+      setSubmissionStatus(data?.message || "Submission complete.");
+
+      if (typeof data?.message === "string" && data.message.includes("Correct! Points awarded.")) {
+        recordLocalLeaderboardActivity();
+
+        const currentScoreStr = localStorage.getItem("debugQuestPerformanceScore");
+        const currentScore = currentScoreStr ? parseInt(currentScoreStr, 10) : 100;
+        const newScore = currentScore + 10;
+        localStorage.setItem("debugQuestPerformanceScore", newScore.toString());
+
+        const historyStr = localStorage.getItem("debugQuestPerformanceHistory");
+        let hist = [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: currentScore }];
+        if (historyStr) { try { hist = JSON.parse(historyStr); } catch (_error) {} }
+        hist.push({ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: newScore });
+        localStorage.setItem("debugQuestPerformanceHistory", JSON.stringify(hist.slice(-9)));
+      }
+    } catch (error) {
+      if (String(error?.message || "").includes("401") || String(error?.message || "").includes("403")) {
+        redirectToLogin();
+        return;
+      }
+      setSubmissionStatus(error?.message || "Submission failed.");
+    }
   }
 
-  const userCode = normalizeCode(question.code);
-  const correctCode = normalizeCode(question.correctCode || "");
-
-  if (!correctCode) {
-    setSubmissionStatus("⚠️ No correct code available to check against.");
-    return;
-  }
-
-  if (userCode === correctCode) {
-    setSubmissionStatus("✅ Correct!");
-  } else {
-    setSubmissionStatus("❌ Incorrect! Keep trying.");
-  }
-}
+  const liveThreshold =
+    typeof question?.maxChangePercentage === "number" ? question.maxChangePercentage : null;
+  const isWithinThreshold = liveThreshold === null || changePercentage <= liveThreshold;
+  const availableHints = Array.isArray(question?.hints) ? question.hints.filter(Boolean) : [];
 
 
   return (
@@ -103,6 +162,12 @@ export default function BuggyCodeGenerator() {
     padding: "2rem",
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
   }}>
+    <UserTopNav
+      breadcrumbItems={[
+        { label: "Challenges", path: "/challenges" },
+        { label: "AI Challenge" },
+      ]}
+    />
 
     <h1 style={{
       fontSize: "2.5rem",
@@ -191,10 +256,25 @@ export default function BuggyCodeGenerator() {
         boxShadow: "0 4px 12px rgba(0,0,0,0.35)"
       }}>
 
-        <h2 style={{ marginBottom: "10px" }}>{question.topic}</h2>
+        <h2 style={{ marginBottom: "10px" }}>{question.title || question.topic}</h2>
         <p style={{ color: "#94a3b8", marginBottom: "12px" }}>
           Language: {question.language}
         </p>
+        <div style={{
+          background: "#111827",
+          border: "1px solid #334155",
+          borderRadius: "10px",
+          padding: "12px",
+          marginBottom: "15px",
+          color: "#cbd5e1",
+          whiteSpace: "pre-wrap",
+          lineHeight: 1.6
+        }}>
+          <p style={{ margin: "0 0 8px", color: "#f8fafc", fontWeight: "700" }}>
+            Question Description
+          </p>
+          {question.description || `Fix the generated ${question.language} code for ${question.topic}.`}
+        </div>
 
         <div style={{
           border: "1px solid #334155",
@@ -209,14 +289,17 @@ export default function BuggyCodeGenerator() {
             theme="vs-dark"
             onChange={(newValue = "") => {
               const changeNum = countChanges(originalCode, newValue, question.language);
-              setChangeCount(changeNum);
+              const nextChangeCount = changeNum < 0 ? 0 : changeNum;
+              const nextChangePercentage = calculateChangePercentage(originalCode, newValue, question.language);
+              setChangeCount(nextChangeCount);
+              setChangePercentage(nextChangePercentage < 0 ? 0 : nextChangePercentage);
               setQuestion((prev) => ({ ...prev, code: newValue }));
             }}
           />
         </div>
 
         {/* BUTTONS */}
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
           <button
             onClick={handleSubmit}
             style={{
@@ -246,6 +329,31 @@ export default function BuggyCodeGenerator() {
           >
             ▶ Run Code
           </button>
+          {availableHints.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setAreHintsVisible((prev) => {
+                  const nextVisible = !prev;
+                  if (nextVisible && !revealedHints.length) {
+                    setRevealedHints([0]);
+                  }
+                  return nextVisible;
+                });
+              }}
+              style={{
+                background: "#f59e0b",
+                border: "none",
+                padding: "8px 14px",
+                borderRadius: "6px",
+                color: "#111827",
+                fontWeight: "600",
+                cursor: "pointer"
+              }}
+            >
+              {areHintsVisible ? "Hide Hints" : "Hint"}
+            </button>
+          )}
 
           {submissionStatus && (
             <span style={{ marginLeft: "10px", fontWeight: "600" }}>
@@ -253,6 +361,66 @@ export default function BuggyCodeGenerator() {
             </span>
           )}
         </div>
+
+        {availableHints.length > 0 && areHintsVisible && (
+          <div style={{
+            marginTop: "16px",
+            background: "#111827",
+            border: "1px solid #334155",
+            borderRadius: "10px",
+            padding: "12px",
+            color: "#cbd5e1"
+          }}>
+            <p style={{ margin: "0 0 10px", color: "#f8fafc", fontWeight: "700" }}>
+              Available Hints
+            </p>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: revealedHints.length ? "10px" : 0 }}>
+              {availableHints.map((_, index) => {
+                const isRevealed = revealedHints.includes(index);
+                return (
+                  <button
+                    key={`ai-hint-${index}`}
+                    type="button"
+                    onClick={() => {
+                      if (!isRevealed) {
+                        setRevealedHints((prev) => [...prev, index].sort((left, right) => left - right));
+                      }
+                    }}
+                    style={{
+                      border: "none",
+                      borderRadius: "999px",
+                      padding: "0.5rem 0.9rem",
+                      background: isRevealed ? "#2563eb" : "#334155",
+                      color: "white",
+                      cursor: "pointer",
+                      fontWeight: "600",
+                    }}
+                  >
+                    {`Hint ${index + 1}`}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {revealedHints.map((hintIndex) => (
+                <div
+                  key={`ai-hint-text-${hintIndex}`}
+                  style={{
+                    background: "#0f172a",
+                    border: "1px solid #334155",
+                    borderRadius: "8px",
+                    padding: "10px 12px",
+                    whiteSpace: "pre-wrap",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <strong style={{ color: "#f8fafc" }}>{`Hint ${hintIndex + 1}: `}</strong>
+                  {availableHints[hintIndex]}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* OUTPUT */}
         <div style={{
@@ -269,9 +437,42 @@ export default function BuggyCodeGenerator() {
           {output || "Run the code to see output"}
         </div>
 
-        <p style={{ marginTop: "12px", color: "#94a3b8" }}>
-          Changes made: <strong>{changeCount}</strong>
-        </p>
+        <div style={{
+          marginTop: "12px",
+          background: "#111827",
+          border: `1px solid ${isWithinThreshold ? "#14532d" : "#7f1d1d"}`,
+          borderRadius: "10px",
+          padding: "12px",
+          color: "#94a3b8"
+        }}>
+          <p style={{ margin: "0 0 8px", color: "#f8fafc", fontWeight: "700" }}>
+            Live Change Tracking
+          </p>
+          <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
+            <span>Change units: <strong style={{ color: "#f8fafc" }}>{changeCount}</strong></span>
+            <span>Change %: <strong style={{ color: "#f8fafc" }}>{changePercentage}%</strong></span>
+            <span>Allowed %: <strong style={{ color: "#f8fafc" }}>{liveThreshold === null ? "No limit" : `${liveThreshold}%`}</strong></span>
+            <span style={{ color: isWithinThreshold ? "#86efac" : "#fca5a5", fontWeight: "bold" }}>
+              {isWithinThreshold ? "Within limit" : "Above limit"}
+            </span>
+          </div>
+        </div>
+
+        <div style={{
+          marginTop: "12px",
+          background: "#111827",
+          border: "1px solid #334155",
+          borderRadius: "10px",
+          padding: "12px",
+          color: "#cbd5e1"
+        }}>
+          <p style={{ margin: "0 0 8px", color: "#f8fafc", fontWeight: "700" }}>
+            Expected Output
+          </p>
+          <div style={{ whiteSpace: "pre-wrap" }}>
+            {question.expectedOutput || "No expected output provided."}
+          </div>
+        </div>
       </div>
     )}
   </div>

@@ -17,6 +17,8 @@ const aiRoutes = require('./routes/aiRoutes');
 const chatbotRoutes = require("./routes/chatbotRoutes");
 const chatbotAdminRoutes = require("./routes/chatbotAdminRoutes");
 const adminQuestionRoutes = require("./routes/adminQuestionRoutes");
+const discussionRoutes = require("./routes/discussionRoutes");
+const adminDiscussionRoutes = require("./routes/adminDiscussionRoutes");
 const internalDashboardRoutes = require("./routes/internalDashboardRoutes");
 const { authenticateUser } = require('./middleware/authMiddleware');
 
@@ -77,9 +79,11 @@ app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/ai', aiRoutes);
 app.use("/api/questions", questionRoutes); 
 app.use("/api/chatbot", chatbotRoutes);
+app.use("/api/discussions", discussionRoutes);
 app.use("/api/dashboard/internal", internalDashboardRoutes);
 app.use("/api/dashboard/internal/chatbot", chatbotAdminRoutes);
 app.use("/api/dashboard/internal/questions", adminQuestionRoutes);
+app.use("/api/dashboard/internal/discussions", adminDiscussionRoutes);
 
 // Connect DB
 connectDB().catch(() => {

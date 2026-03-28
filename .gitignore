@@ -2,3 +2,8 @@
 .env.*
 !.env.example
 node_modules/
+ollama_data/
+piston_data/
+uploads/
+db/
+start-rag.sh

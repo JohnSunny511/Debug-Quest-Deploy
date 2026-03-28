@@ -1,19 +1,23 @@
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { countChanges } from '../utils/countCodeChanges';
+import { calculateChangePercentage, countChanges } from '../utils/countCodeChanges';
 import Editor from "@monaco-editor/react";
 import { executeCode } from "../utils/executeCode";
 import { recordLocalLeaderboardActivity, summarizeLeaderboardActivity, readLocalLeaderboardActivity } from "../utils/leaderboardActivity";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config/api";
+import { clearStoredSession, isAuthError, redirectToLogin, validateStoredSession } from "../utils/authSession";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import UserTopNav from "../components/UserTopNav";
 import "./Challenges.css";
 
 function Challenges() {
+    const navigate = useNavigate();
     const [question, setQuestion] = useState(null);
     const loading = false;
     const [changeCount, setChangeCount] = useState(0);
-    const originalCode = "";
+    const [changePercentage, setChangePercentage] = useState(0);
+    const [originalCode, setOriginalCode] = useState("");
     const [output, setOutput] = useState("");
     const [username, setUsername] = useState("");
     const [performanceScore, setPerformanceScore] = useState(() => {
@@ -28,6 +32,11 @@ function Challenges() {
         return [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: 100 }];
     });
     const [leaderboardUsers, setLeaderboardUsers] = useState([]);
+    const [questionSummaries, setQuestionSummaries] = useState({
+        easy: { count: 0, languages: [] },
+        medium: { count: 0, languages: [] },
+        hard: { count: 0, languages: [] },
+    });
     const [solvedQuestions, setSolvedQuestions] = useState(() => {
         const stored = localStorage.getItem("debugQuestSolvedQuestions");
         return stored ? JSON.parse(stored) : [];
@@ -90,30 +99,114 @@ function Challenges() {
                     });
                 }
             } catch (err) {
+                if (isAuthError(err)) {
+                    redirectToLogin(navigate);
+                    return;
+                }
                 console.error("Failed fetching leaderboard", err);
             }
         };
         if (username) fetchLeaderboard();
         const interval = setInterval(fetchLeaderboard, 15000);
         return () => { isMounted = false; clearInterval(interval); };
-    }, [username]);
+    }, [username, navigate]);
     const motionDeckRef = useRef(null);
     const canvasRef = useRef(null);
     const mouseTarget = useRef({ x: 0.5, y: 0.5 });
     const mouseCurrent = useRef({ x: 0.5, y: 0.5 });
 
-    const navigate = useNavigate();
+    useEffect(() => {
+        let isMounted = true;
+
+        const syncSession = async () => {
+            const storedToken = localStorage.getItem("token");
+            if (!storedToken) {
+                if (!isMounted) return;
+                clearStoredSession();
+                navigate("/login", { replace: true });
+                return;
+            }
+
+            try {
+                const isValid = await validateStoredSession(navigate);
+                if (!isMounted || !isValid) return;
+                setUsername(localStorage.getItem("username") || "");
+            } catch (_error) {
+                if (!isMounted) return;
+                setUsername(localStorage.getItem("username") || "");
+            }
+        };
+
+        syncSession();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [navigate]);
 
     useEffect(() => {
-        const storedUsername = localStorage.getItem("username");
-        if (storedUsername) setUsername(storedUsername);
-    }, []);
+        let isMounted = true;
 
-    const logout = () => {
-        localStorage.removeItem("token");
-        localStorage.removeItem("username");
-        window.location.href = "/login";
-    };
+        const fetchQuestionCounts = async () => {
+            try {
+                const token = localStorage.getItem("token");
+                const headers = token ? { Authorization: `Bearer ${token}` } : {};
+                const [easyRes, mediumRes, hardRes] = await Promise.all([
+                    axios.get(`${API_BASE_URL}/api/questions/easy`, { headers }),
+                    axios.get(`${API_BASE_URL}/api/questions/medium`, { headers }),
+                    axios.get(`${API_BASE_URL}/api/questions/hard`, { headers }),
+                ]);
+
+                if (!isMounted) return;
+
+                const buildLevelSummary = (questions) => {
+                    const safeQuestions = Array.isArray(questions) ? questions : [];
+                    const languages = Array.from(
+                        new Set(
+                            safeQuestions
+                                .map((question) => String(question?.language || "").trim())
+                                .filter(Boolean)
+                                .map((language) => {
+                                    const normalized = language.toLowerCase();
+                                    if (normalized === "javascript") return "JavaScript";
+                                    if (normalized === "python") return "Python";
+                                    if (normalized === "c") return "C";
+                                    if (normalized === "cpp" || normalized === "c++") return "C++";
+                                    return language.charAt(0).toUpperCase() + language.slice(1);
+                                })
+                        )
+                    );
+
+                    return {
+                        count: safeQuestions.length,
+                        languages,
+                    };
+                };
+
+                setQuestionSummaries({
+                    easy: buildLevelSummary(easyRes.data),
+                    medium: buildLevelSummary(mediumRes.data),
+                    hard: buildLevelSummary(hardRes.data),
+                });
+            } catch (error) {
+                if (isAuthError(error)) {
+                    redirectToLogin(navigate);
+                }
+            }
+        };
+
+        fetchQuestionCounts();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [navigate]);
+
+    useEffect(() => {
+        if (question?.code && !originalCode) {
+            setOriginalCode(question.code);
+        }
+    }, [question, originalCode]);
 
     const runCode = async () => {
         if (!question?.code?.trim()) {
@@ -124,6 +217,10 @@ function Challenges() {
             const result = await executeCode(question.language, question.code);
             setOutput(result);
         } catch (_err) {
+            if (String(_err?.message || "").includes("Session expired")) {
+                redirectToLogin(navigate);
+                return;
+            }
             setOutput("❌ Error running code.");
         }
     };
@@ -161,14 +258,18 @@ function Challenges() {
             }
             alert(res.data.message);
         } catch (_err) {
+            if (isAuthError(_err)) {
+                redirectToLogin(navigate);
+                return;
+            }
             alert("Submission failed.");
         }
     };
 
     const levels = [
-        { name: "easy",   color: "#10b981", tasks: ["5 Questions", "Python/JS", "Basic Debugging"] },
-        { name: "medium", color: "#f59e0b", tasks: ["5 Questions", "Python/JS", "Intermediate Debugging"] },
-        { name: "hard",   color: "#ef4444", tasks: ["5 Questions", "Python/JS", "Advanced Debugging"] },
+        { name: "easy",   color: "#10b981", tasks: ["languages", "Basic Debugging"] },
+        { name: "medium", color: "#f59e0b", tasks: ["languages", "Intermediate Debugging"] },
+        { name: "hard",   color: "#ef4444", tasks: ["languages", "Advanced Debugging"] },
         { name: "ai", route: "/buggy",      tasks: ["AI Questions", "Python/JS/C", "Dynamic Bug Fixing"] },
     ];
 
@@ -364,11 +465,21 @@ function Challenges() {
         { rank: 1, name: "Loading...", score: "-", badge: "#6366f1" }
     ];
 
-    const langProgress = [
-        { lang: "Python",     pct: 0, color: "#3bbcf8" },
-        { lang: "JavaScript", pct: 0, color: "#f7df1e" },
-        { lang: "Java",       pct: 0, color: "#e8643c" },
-    ];
+    const performanceValues = performanceHistory
+        .map((entry) => Number(entry?.score))
+        .filter((value) => Number.isFinite(value));
+    const chartObservedMin = performanceValues.length ? Math.min(...performanceValues, performanceScore) : performanceScore;
+    const chartObservedMax = performanceValues.length ? Math.max(...performanceValues, performanceScore) : performanceScore;
+    const chartRange = Math.max(10, chartObservedMax - chartObservedMin);
+    const chartPadding = Math.max(10, Math.ceil(chartRange * 0.2));
+    const chartMin = Math.max(0, Math.floor((chartObservedMin - chartPadding) / 10) * 10);
+    const chartMax = Math.ceil((chartObservedMax + chartPadding) / 10) * 10;
+    const tickCount = 5;
+    const rawTickStep = Math.max(10, Math.ceil((chartMax - chartMin) / (tickCount - 1)));
+    const tickStep = Math.ceil(rawTickStep / 10) * 10;
+    const performanceTicks = Array.from({ length: tickCount }, (_, index) => chartMin + tickStep * index)
+        .filter((tick, index, ticks) => index === ticks.length - 1 || tick <= chartMax);
+    const safeChartMax = performanceTicks.length ? performanceTicks[performanceTicks.length - 1] : chartMax;
 
     const card = {
         background: "linear-gradient(145deg, #1f1f2e, #11111e)",
@@ -386,18 +497,13 @@ function Challenges() {
         margin: "0 0 14px",
     };
 
+    const liveThreshold =
+        typeof question?.maxChangePercentage === "number" ? question.maxChangePercentage : null;
+    const isWithinThreshold = liveThreshold === null || changePercentage <= liveThreshold;
+
     return (
         <div style={{ minHeight: "100vh", backgroundColor: "#1f2937", color: "white", padding: "clamp(16px, 4vw, 20px)", fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
-
-            {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", marginBottom: "30px" }}>
-                <h1 style={{ fontSize: "clamp(1.6rem, 4vw, 2rem)", fontWeight: "bold", margin: 0 }}>Debug Quest</h1>
-                <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: "8px", width: "min(100%, 420px)" }}>
-                    👋 <strong>{username}</strong>{" "}
-                    <button onClick={() => navigate("/learn")} style={{ backgroundColor: "#0ea5e9", color: "white", padding: "6px 10px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", fontSize: "0.85rem" }}>Learn</button>
-                    <button onClick={logout} style={{ backgroundColor: "#ef4444", color: "white", padding: "6px 12px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold" }}>Logout</button>
-                </div>
-            </div>
+            <UserTopNav />
 
             {/* Level Cards */}
             <div style={{ display: "flex", gap: "20px", justifyContent: "center", flexWrap: "wrap", marginBottom: "40px" }}>
@@ -417,12 +523,20 @@ function Challenges() {
                         onMouseOut={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.5), 0 0 15px rgba(139,92,246,0.4)"; }}
                     >
                         <div style={{ color: "#fff", fontWeight: "bold", fontSize: "1.2rem" }}>{lvl.name.toUpperCase()}</div>
-                        <div style={{ fontSize: "0.85rem", color: "#c4c4c4" }}>Complete {lvl.tasks.length} tasks</div>
                         <ul style={{ display: "flex", flexDirection: "column", gap: "8px", paddingLeft: "0", listStyle: "none" }}>
-                            {lvl.tasks.map((task, idx) => (
+                            {[
+                                lvl.name === "ai"
+                                    ? "Generate dynamic AI questions"
+                                    : `${questionSummaries[lvl.name]?.count ?? 0} Questions`,
+                                ...lvl.tasks,
+                            ].map((task, idx) => (
                                 <li key={idx} style={{ display: "flex", alignItems: "center", gap: "10px", color: "#fff", fontSize: "0.9rem" }}>
                                     <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "18px", height: "18px", borderRadius: "50%", background: "linear-gradient(45deg, #8b5cf6, #c084fc)", boxShadow: "0 0 5px rgba(139,92,246,0.7)", color: "#111" }}>✓</span>
-                                    {task}
+                                    {task === "languages" && lvl.name !== "ai"
+                                        ? (questionSummaries[lvl.name]?.languages.length
+                                            ? questionSummaries[lvl.name].languages.join(" / ")
+                                            : "No languages")
+                                        : task}
                                 </li>
                             ))}
                         </ul>
@@ -453,7 +567,10 @@ function Challenges() {
                         theme="vs-dark"
                         onChange={(newValue) => {
                             const changeNum = countChanges(originalCode, newValue, question.language);
-                            setChangeCount(changeNum);
+                            const nextChangeCount = changeNum < 0 ? 0 : changeNum;
+                            const nextChangePercentage = calculateChangePercentage(originalCode, newValue, question.language);
+                            setChangeCount(nextChangeCount);
+                            setChangePercentage(nextChangePercentage < 0 ? 0 : nextChangePercentage);
                             setQuestion((prev) => ({ ...prev, code: newValue }));
                         }}
                         options={{ fontSize: 16, minimap: { enabled: false }, lineNumbers: "on", roundedSelection: true }}
@@ -466,7 +583,26 @@ function Challenges() {
                         <strong>Output:</strong> {output}
                     </pre>
                     <p style={{ marginTop: "10px", color: "#d1d5db" }}><strong>Expected Output:</strong> {question.expected}</p>
-                    <p style={{ color: "#d1d5db" }}><strong>Changes Made:</strong> {changeCount}</p>
+                    <div
+                        style={{
+                            marginTop: "10px",
+                            backgroundColor: "#111827",
+                            border: `1px solid ${isWithinThreshold ? "#14532d" : "#7f1d1d"}`,
+                            borderRadius: "12px",
+                            padding: "14px",
+                            color: "#d1d5db"
+                        }}
+                    >
+                        <p style={{ margin: "0 0 10px", color: "#f9fafb", fontWeight: "bold" }}>Live Change Tracking</p>
+                        <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
+                            <span>Change units: <strong style={{ color: "#f9fafb" }}>{changeCount}</strong></span>
+                            <span>Change %: <strong style={{ color: "#f9fafb" }}>{changePercentage}%</strong></span>
+                            <span>Allowed %: <strong style={{ color: "#f9fafb" }}>{liveThreshold === null ? "No limit" : `${liveThreshold}%`}</strong></span>
+                            <span style={{ color: isWithinThreshold ? "#86efac" : "#fca5a5", fontWeight: "bold" }}>
+                                {isWithinThreshold ? "Within limit" : "Above limit"}
+                            </span>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -489,6 +625,41 @@ function Challenges() {
 
                 {/* LEFT PANEL — floats over globe left region */}
                 <div className="globe-side-panel globe-side-panel--left">
+                    <div style={{...card, display: "flex", flexDirection: "column", minHeight: "430px", justifyContent: "space-between"}}>
+                        <p style={sectionLabel}>Performance Trend</p>
+                        <div style={{ width: "100%", height: "310px", marginTop: "10px", position: "relative", flex: 1 }}>
+                            <ResponsiveContainer width="100%" height={310}>
+                                <LineChart data={performanceHistory} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                                    <XAxis dataKey="time" stroke="#6b7280" fontSize={11} tickMargin={8} />
+                                    <YAxis
+                                        stroke="#6b7280"
+                                        fontSize={11}
+                                        domain={[chartMin, safeChartMax]}
+                                        ticks={performanceTicks}
+                                        tickFormatter={(val) => `${Math.round(val)}`}
+                                        width={52}
+                                        allowDecimals={false}
+                                    />
+                                    <Tooltip 
+                                        contentStyle={{ backgroundColor: "#1f2937", border: "1px solid rgba(139,92,246,0.3)", borderRadius: "8px", color: "#f3f4f6" }}
+                                        itemStyle={{ color: "#a855f7" }}
+                                        formatter={(value) => [`${Math.round(Number(value) || 0)}`, "Score"]}
+                                    />
+                                    <Line type="monotone" dataKey="score" stroke="#a855f7" strokeWidth={3} dot={{ r: 4, fill: "#a855f7", strokeWidth: 2, stroke: "#1f2937" }} activeDot={{ r: 6, fill: "#c084fc" }} animationDuration={1000} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                        <div style={{ marginTop: "10px", textAlign: "center" }}>
+                            <div style={{ fontSize: "0.80rem", color: "#9ca3af" }}>Current Score</div>
+                            <div style={{ fontSize: "1.4rem", fontWeight: "bold", color: "#c084fc", textShadow: "0 0 10px rgba(192,132,252,0.4)" }}>{performanceScore}</div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* RIGHT PANEL — floats over globe right region */}
+                <div className="globe-side-panel globe-side-panel--right" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    
                     <div style={card}>
                         <p style={sectionLabel}>Your Stats</p>
                         <div style={{ display: "flex", flexDirection: "column", gap: "13px" }}>
@@ -507,55 +678,6 @@ function Challenges() {
                                     </div>
                                 </div>
                             ))}
-                        </div>
-                    </div>
-
-                    <div style={card}>
-                        <p style={sectionLabel}>Languages</p>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "13px" }}>
-                            {langProgress.map((l) => (
-                                <div key={l.lang}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", color: "#d1d5db", marginBottom: "5px" }}>
-                                        <span>{l.lang}</span>
-                                        <span style={{ color: l.color, fontWeight: 600 }}>{l.pct}%</span>
-                                    </div>
-                                    <div style={{ height: "6px", borderRadius: "4px", background: "rgba(255,255,255,0.07)" }}>
-                                        <div style={{
-                                            height: "100%",
-                                            width: `${l.pct}%`,
-                                            borderRadius: "4px",
-                                            background: l.color,
-                                            transition: "width 0.6s ease",
-                                        }} />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* RIGHT PANEL — floats over globe right region */}
-                <div className="globe-side-panel globe-side-panel--right" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    
-                    <div style={{...card, display: "flex", flexDirection: "column"}}>
-                        <p style={sectionLabel}>Performance Trend</p>
-                        <div style={{ width: "100%", height: "160px", marginTop: "10px", position: "relative" }}>
-                            <ResponsiveContainer width="100%" height={160}>
-                                <LineChart data={performanceHistory} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                                    <XAxis dataKey="time" stroke="#6b7280" fontSize={11} tickMargin={8} />
-                                    <YAxis stroke="#6b7280" fontSize={11} domain={['auto', 'auto']} tickFormatter={(val) => Math.round(val)} width={40} />
-                                    <Tooltip 
-                                        contentStyle={{ backgroundColor: "#1f2937", border: "1px solid rgba(139,92,246,0.3)", borderRadius: "8px", color: "#f3f4f6" }}
-                                        itemStyle={{ color: "#a855f7" }}
-                                    />
-                                    <Line type="monotone" dataKey="score" stroke="#a855f7" strokeWidth={3} dot={{ r: 4, fill: "#a855f7", strokeWidth: 2, stroke: "#1f2937" }} activeDot={{ r: 6, fill: "#c084fc" }} animationDuration={1000} />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </div>
-                        <div style={{ marginTop: "10px", textAlign: "center" }}>
-                            <div style={{ fontSize: "0.80rem", color: "#9ca3af" }}>Current Score</div>
-                            <div style={{ fontSize: "1.4rem", fontWeight: "bold", color: "#c084fc", textShadow: "0 0 10px rgba(192,132,252,0.4)" }}>{performanceScore}</div>
                         </div>
                     </div>
 

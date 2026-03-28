@@ -168,6 +168,35 @@
   color: #f4faff;
 }
 
+.hero-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12em;
+  overflow: hidden;
+}
+
+.hero-title-line {
+  display: inline-block;
+  width: max-content;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: visible;
+  clip-path: inset(0 100% 0 0);
+  will-change: width, transform, opacity;
+}
+
+.hero-title-line-1 {
+  animation:
+    heroClipReveal 1.15s steps(34, end) 0.15s forwards,
+    heroSlideReveal 0.9s ease-out 0.15s forwards;
+}
+
+.hero-title-line-2 {
+  animation:
+    heroClipReveal 1s steps(24, end) 1.05s forwards,
+    heroSlideReveal 0.85s ease-out 1.05s forwards;
+}
+
 .hero-description {
   max-width: 620px;
   margin: 0;
@@ -235,6 +264,23 @@
 .metric-card span {
   font-size: 0.78rem;
   color: #bfd8ec;
+}
+
+.hero-support-strip {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.support-chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(8, 33, 58, 0.62);
+  border: 1px solid rgba(143, 198, 236, 0.22);
+  color: #dff4ff;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .hero-visual {
@@ -396,6 +442,42 @@
   font-size: 0.92rem;
 }
 
+.workflow-strip {
+  position: relative;
+  z-index: 2;
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.workflow-card {
+  padding: 18px 16px;
+  border-radius: 16px;
+  background: rgba(5, 24, 45, 0.52);
+  border: 1px solid rgba(148, 194, 228, 0.18);
+}
+
+.workflow-step {
+  margin: 0 0 10px;
+  color: #7be3ff;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.workflow-card h3 {
+  margin: 0 0 8px;
+  color: #f3fbff;
+}
+
+.workflow-card p:last-child {
+  margin: 0;
+  color: #c2dcec;
+  line-height: 1.6;
+  font-size: 0.93rem;
+}
+
 @keyframes fadeSlide {
   from {
     opacity: 0;
@@ -404,6 +486,26 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes heroClipReveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes heroSlideReveal {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
@@ -480,6 +582,10 @@
     grid-template-columns: 1fr;
   }
 
+  .workflow-strip {
+    grid-template-columns: 1fr;
+  }
+
   .pill-2 {
     left: -8px;
   }
@@ -502,6 +608,17 @@
 
   .hero-copy h1 {
     font-size: 1.9rem;
+  }
+
+  .hero-title-line {
+    white-space: normal;
+    width: 100%;
+    clip-path: inset(0 0 0 0);
+    animation: fadeSlide 0.75s ease-out both;
+  }
+
+  .hero-title-line-2 {
+    animation-delay: 0.2s;
   }
 
   .hero-actions {

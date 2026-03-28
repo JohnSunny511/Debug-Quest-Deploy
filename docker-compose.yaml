@@ -1,0 +1,139 @@
+version: '3.8'
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    volumes:
+      - ./ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - rag-network
+
+  model-puller:
+    image: ollama/ollama:latest
+    container_name: ollama-model-puller
+    networks:
+      - rag-network
+    environment:
+      - LLM_MODEL=qwen2.5:3b
+      - OLLAMA_HOST=ollama-server:11434
+    entrypoint: /bin/sh
+    command: >
+      -c "sleep 5;
+          until ollama list > /dev/null 2>&1; do sleep 3; done;
+          ollama pull $$LLM_MODEL"
+    depends_on:
+      - ollama
+
+  app:
+    image: johnspalatty/cerebro-rag:latest
+    container_name: rag-app
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_HOST=http://ollama-server:11434
+      - LLM_MODEL=qwen2.5:3b
+      - CHROMA_DB_PATH=/app/db
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      - ./db:/app/db
+      - ./uploads:/app/uploads
+    depends_on:
+      - ollama
+      - model-puller
+    networks:
+      - rag-network
+    restart: always
+
+  piston-api:
+    image: ghcr.io/engineer-man/piston
+    container_name: piston-api
+    ports:
+      - "2000:2000"
+    networks:
+      - rag-network
+    restart: always
+    privileged: true
+    volumes:
+      - ./piston_data:/piston
+
+  piston-installer:
+    image: ghcr.io/engineer-man/piston
+    container_name: piston-installer
+    network_mode: service:piston-api
+    entrypoint: /bin/sh
+    command: >
+      -c "echo 'Waiting for Piston API to start...';
+          until node -e \"const http=require('http');
+          const req=http.request({hostname:'localhost',port:2000,path:'/api/v2/runtimes'},res=>process.exit(0));
+          req.on('error',()=>process.exit(1));
+          req.end();\"; do sleep 2; done;
+          echo '✔ Piston API is online!';
+          node -e \"
+          const http = require('http');
+          const langs = [
+            { language: 'python', version: '3.10.0' },
+            { language: 'node', version: '18.15.0' },
+            { language: 'gcc', version: '10.2.0' }
+          ];
+          const install = (l) => new Promise((resolve, reject) => {
+            const data = JSON.stringify(l);
+            const req = http.request({
+              hostname: 'localhost',
+              port: 2000,
+              path: '/api/v2/packages',
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(data)
+              }
+            }, (res) => {
+              let body = '';
+              res.on('data', d => body += d);
+              res.on('end', () => resolve(body));
+            });
+            req.on('error', reject);
+            req.setTimeout(600000, () => {
+              req.destroy(new Error('Install timed out for ' + l.language));
+            });
+            req.write(data);
+            req.end();
+          });
+          (async () => {
+             console.log('\\n==========================================');
+             console.log('📦 STARTING PACKAGE INSTALLATIONS');
+             console.log('==========================================\\n');
+             for (const l of langs) {
+               console.log('⏳ Downloading & Extracting ' + l.language + ' ' + l.version + '...');
+               
+               let secs = 0;
+               const timer = setInterval(() => {
+                 secs += 5;
+                 process.stdout.write('   -> ' + secs + 's elapsed\\n');
+               }, 5000);
+               
+               try {
+                 await install(l);
+                 clearInterval(timer);
+                 console.log('✔ ' + l.language + ' installed successfully! (Took ' + secs + 's)\\n');
+               } catch (err) {
+                 clearInterval(timer);
+                 console.error('❌ Failed to install ' + l.language + ':', err.message);
+                 process.exit(1);
+               }
+             }
+             console.log('==========================================');
+             console.log('🎉 ALL SET! YOU CAN NOW RUN CODE!');
+             console.log('==========================================\\n');
+          })();
+          \""
+    depends_on:
+      - piston-api
+    restart: "no"
+
+networks:
+  rag-network:
+    driver: bridge

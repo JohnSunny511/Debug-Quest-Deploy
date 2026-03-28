@@ -57,11 +57,15 @@ function toAdminQuestionShape(question) {
   return {
     _id: question._id,
     questionName: question.title || "",
+    description: question.description || "",
     questionText: question.code || "",
     answerText: question.correctAnswer || question.expected || "",
     expectedOutcome: question.expected || "",
+    hints: Array.isArray(question.hints) ? question.hints : [],
     difficulty: question.level,
     language: resolvedLanguage,
+    maxChangePercentage:
+      typeof question.maxChangePercentage === "number" ? question.maxChangePercentage : "",
   };
 }
 
@@ -81,26 +85,42 @@ exports.createAdminQuestion = async (req, res) => {
     const parsed = z
       .object({
         questionName: z.string().min(1).max(120),
+        description: z.string().max(5000).optional().default(""),
         questionText: z.string().min(1).max(20000),
         answerText: z.string().min(1).max(20000),
         expectedOutcome: z.string().max(20000).optional().default(""),
         difficulty: z.enum(["easy", "medium", "hard"]),
         language: z.string().max(20).optional().default("text"),
+        hints: z.array(z.string().min(1).max(1000)).max(10).optional().default([]),
+        maxChangePercentage: z.coerce.number().min(0).max(100),
       })
       .safeParse({
         questionName: sanitizeText(req.body?.questionName, { maxLength: 120, allowNewlines: false }),
+        description: sanitizeFreeText(req.body?.description, { maxLength: 5000, stripHtml: false, preserveFormatting: true }),
         questionText: sanitizeFreeText(req.body?.questionText, { maxLength: 20000, stripHtml: false, preserveFormatting: true }),
         answerText: sanitizeFreeText(req.body?.answerText, { maxLength: 20000, stripHtml: false, preserveFormatting: true }),
         expectedOutcome: sanitizeFreeText(req.body?.expectedOutcome, { maxLength: 20000, stripHtml: false, preserveFormatting: true }),
         difficulty: sanitizeText(req.body?.difficulty, { maxLength: 10, allowNewlines: false }).toLowerCase(),
         language: sanitizeText(req.body?.language, { maxLength: 20, allowNewlines: false }).toLowerCase(),
+        hints: Array.isArray(req.body?.hints)
+          ? req.body.hints
+              .map((hint) =>
+                sanitizeFreeText(hint, {
+                  maxLength: 1000,
+                  stripHtml: false,
+                  preserveFormatting: true,
+                })
+              )
+              .filter((hint) => String(hint || "").trim().length > 0)
+          : [],
+        maxChangePercentage: req.body?.maxChangePercentage,
       });
 
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid question payload." });
     }
 
-    const { questionName, questionText, answerText, expectedOutcome, difficulty, language } = parsed.data;
+    const { questionName, description, questionText, answerText, expectedOutcome, difficulty, language, hints, maxChangePercentage } = parsed.data;
     const selectedLanguage = normalizeLanguageForStorage(language, questionText);
     const lastQuestion = await Question.findOne({ level: difficulty }).sort({ id: -1 });
     const nextId = (lastQuestion?.id || 0) + 1;
@@ -109,11 +129,14 @@ exports.createAdminQuestion = async (req, res) => {
     const question = await Question.create({
       id: nextId,
       title: questionName.trim(),
+      description: String(description || "").trim(),
       language: selectedLanguage,
       code: questionText.trim(),
       expected: resolvedExpected,
       level: difficulty,
       correctAnswer: answerText.trim(),
+      hints: hints.map((hint) => hint.trim()).filter(Boolean),
+      maxChangePercentage,
       source: "admin",
     });
 

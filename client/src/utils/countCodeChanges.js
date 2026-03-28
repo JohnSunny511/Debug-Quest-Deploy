@@ -94,6 +94,7 @@ export function countChanges(original, modified, language) {
     case "python":
       return countCodeChangesPython(original, modified);
     case "c":
+    case "javascript":
       return countCodeChangesC(original, modified);
     case "text":
     case "plaintext":
@@ -102,4 +103,16 @@ export function countChanges(original, modified, language) {
       console.warn("Unsupported language:", language);
       return -1;
   }
+}
+
+export function calculateChangePercentage(original, modified, language) {
+  const changes = countChanges(original, modified, language);
+  if (changes < 0) return -1;
+
+  const normalizedLanguage = String(language || "").toLowerCase();
+  const tokenSourceLanguage =
+    normalizedLanguage === "plaintext" ? "text" : normalizedLanguage;
+  const baseline = Math.max(countChanges("", original, tokenSourceLanguage), 1);
+
+  return Number(((changes / baseline) * 100).toFixed(2));
 }

@@ -8,6 +8,8 @@ import {
   summarizeLeaderboardActivity,
   syncLocalActivityFromScore,
 } from "../utils/leaderboardActivity";
+import { clearStoredSession, isAuthError, validateStoredSession } from "../utils/authSession";
+import UserTopNav from "./UserTopNav";
 import "./Leaderboard.css";
 
 const getMedal = (index) => {
@@ -34,82 +36,102 @@ function Leaderboard() {
     currentStreak: 0,
   });
   const [errorMessage, setErrorMessage] = useState("");
-  const token = localStorage.getItem("token");
-  const username = localStorage.getItem("username");
+  const [token, setToken] = useState(() => localStorage.getItem("token"));
+  const [username, setUsername] = useState(() => localStorage.getItem("username"));
 
   useEffect(() => {
     let isMounted = true;
 
-    const loadLeaderboard = () => {
-      axios
-        .get(`${API_BASE_URL}/api/leaderboard`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-        .then((res) => {
+    const loadLeaderboard = async () => {
+      try {
+        if (token) {
+          const isValid = await validateStoredSession();
           if (!isMounted) return;
 
-          const payload = res.data;
-
-          if (Array.isArray(payload)) {
-            const localFallback = summarizeLeaderboardActivity(readLocalLeaderboardActivity());
-            setUsers(
-              payload.filter(
-                (item) =>
-                  item &&
-                  (typeof item.username === "string" || typeof item.username === "number")
-              )
-            );
-            setActivity(localFallback.activity);
-            setSummary(localFallback.summary);
-            setErrorMessage("");
+          if (!isValid) {
+            setToken("");
+            setUsername("");
             return;
           }
 
-          const nextUsers = Array.isArray(payload?.users)
-            ? payload.users.filter(
-                (item) =>
-                  item &&
-                  (typeof item.username === "string" || typeof item.username === "number")
-              )
-            : [];
+          setToken(localStorage.getItem("token"));
+          setUsername(localStorage.getItem("username"));
+        }
 
-          const currentUser = nextUsers.find((item) => item.username === username);
-          const serverActivity = Array.isArray(payload?.activity) ? payload.activity : [];
-          const serverSummary = {
-            totalSubmissions: Number(payload?.summary?.totalSubmissions || 0),
-            activeDays: Number(payload?.summary?.activeDays || 0),
-            currentStreak: Number(payload?.summary?.currentStreak || 0),
-          };
-          const localEntries = currentUser
-            ? syncLocalActivityFromScore(currentUser.username, currentUser.points)
-            : readLocalLeaderboardActivity();
-          const localFallback = summarizeLeaderboardActivity(localEntries);
-          const shouldUseLocalFallback =
-            serverSummary.totalSubmissions === 0 &&
-            localFallback.summary.totalSubmissions > 0;
-
-          setUsers(nextUsers);
-          setActivity(
-            shouldUseLocalFallback
-              ? localFallback.activity
-              : buildLeaderboardActivityWindow(serverActivity)
-          );
-          setSummary(shouldUseLocalFallback ? localFallback.summary : serverSummary);
-          setErrorMessage(
-            !nextUsers.length && !Array.isArray(payload?.users)
-              ? "Leaderboard data returned in an unexpected format."
-              : ""
-          );
-        })
-        .catch((error) => {
-          if (!isMounted) return;
-
-          const message =
-            error?.response?.data?.message ||
-            error?.message ||
-            "Unable to load leaderboard right now.";
-          setErrorMessage(message);
+        const res = await axios.get(`${API_BASE_URL}/api/leaderboard`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
+
+        if (!isMounted) return;
+
+        const payload = res.data;
+
+        if (Array.isArray(payload)) {
+          const localFallback = summarizeLeaderboardActivity(readLocalLeaderboardActivity());
+          setUsers(
+            payload.filter(
+              (item) =>
+                item &&
+                (typeof item.username === "string" || typeof item.username === "number")
+            )
+          );
+          setActivity(localFallback.activity);
+          setSummary(localFallback.summary);
+          setErrorMessage("");
+          return;
+        }
+
+        const nextUsers = Array.isArray(payload?.users)
+          ? payload.users.filter(
+              (item) =>
+                item &&
+                (typeof item.username === "string" || typeof item.username === "number")
+            )
+          : [];
+
+        const currentUser = nextUsers.find((item) => item.username === username);
+        const serverActivity = Array.isArray(payload?.activity) ? payload.activity : [];
+        const serverSummary = {
+          totalSubmissions: Number(payload?.summary?.totalSubmissions || 0),
+          activeDays: Number(payload?.summary?.activeDays || 0),
+          currentStreak: Number(payload?.summary?.currentStreak || 0),
+        };
+        const localEntries = currentUser
+          ? syncLocalActivityFromScore(currentUser.username, currentUser.points)
+          : readLocalLeaderboardActivity();
+        const localFallback = summarizeLeaderboardActivity(localEntries);
+        const shouldUseLocalFallback =
+          serverSummary.totalSubmissions === 0 &&
+          localFallback.summary.totalSubmissions > 0;
+
+        setUsers(nextUsers);
+        setActivity(
+          shouldUseLocalFallback
+            ? localFallback.activity
+            : buildLeaderboardActivityWindow(serverActivity)
+        );
+        setSummary(shouldUseLocalFallback ? localFallback.summary : serverSummary);
+        setErrorMessage(
+          !nextUsers.length && !Array.isArray(payload?.users)
+            ? "Leaderboard data returned in an unexpected format."
+            : ""
+        );
+      } catch (error) {
+        if (!isMounted) return;
+
+        if (isAuthError(error)) {
+          clearStoredSession();
+          setToken("");
+          setUsername("");
+          return;
+        }
+
+        const message =
+          error?.response?.data?.message ||
+          error?.message ||
+          "Unable to load leaderboard right now.";
+        setErrorMessage(message);
+      }
     };
 
     loadLeaderboard();
@@ -164,37 +186,30 @@ function Leaderboard() {
         <span className="leaderboard-grid" />
       </div>
 
-      <header className="leaderboard-header">
-        <Link className="leaderboard-brand" to="/">
-          <span className="leaderboard-brand-mark">&lt;/&gt;</span>
-          <span className="leaderboard-brand-name">Debug Quest</span>
-        </Link>
-
-        <nav className="leaderboard-nav">
-          <Link className="leaderboard-nav-link" to="/learn">
-            Learn
+      {token ? (
+        <div className="leaderboard-header">
+          <UserTopNav breadcrumbItems={[{ label: "LeaderBoard" }]} />
+        </div>
+      ) : (
+        <header className="leaderboard-header">
+          <Link className="leaderboard-brand" to="/">
+            <span className="leaderboard-brand-mark">&lt;/&gt;</span>
+            <span className="leaderboard-brand-name">Debug Quest</span>
           </Link>
-          {token ? (
-            <>
-              <span className="leaderboard-welcome">
-                Welcome{username ? `, ${username}` : ""}
-              </span>
-              <Link className="leaderboard-nav-cta" to="/challenges">
-                Open Challenges
-              </Link>
-            </>
-          ) : (
-            <>
-              <Link className="leaderboard-nav-link" to="/login">
-                Login
-              </Link>
-              <Link className="leaderboard-nav-cta" to="/signup">
-                Sign Up
-              </Link>
-            </>
-          )}
-        </nav>
-      </header>
+
+          <nav className="leaderboard-nav">
+            <Link className="leaderboard-nav-link" to="/learn">
+              Learn
+            </Link>
+            <Link className="leaderboard-nav-link" to="/login">
+              Login
+            </Link>
+            <Link className="leaderboard-nav-cta" to="/signup">
+              Sign Up
+            </Link>
+          </nav>
+        </header>
+      )}
 
       <main className="leaderboard-shell">
         <section className="leaderboard-activity-card">

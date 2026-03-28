@@ -3,6 +3,7 @@ import React, { Suspense, lazy } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import BackButton from "./BackButton";
 import AdminRoute from "./AdminRoute";
+import PageLoader from "./PageLoader";
 
 const Signup = lazy(() => import("./Signup"));
 const Login = lazy(() => import("../pages/Login"));
@@ -17,6 +18,7 @@ const QuestionDetail = lazy(() => import("../pages/QuestionDetail"));
 const InternalDashboard = lazy(() => import("../pages/InternalDashboard"));
 const AdminChatbotSettings = lazy(() => import("../pages/AdminChatbotSettings"));
 const AdminQuestionManager = lazy(() => import("../pages/AdminQuestionManager"));
+const AdminDiscussionReports = lazy(() => import("../pages/AdminDiscussionReports"));
 
 function Root() {
   return (
@@ -24,19 +26,7 @@ function Root() {
       <BackButton />
       <Suspense
         fallback={
-          <div
-            style={{
-              minHeight: "100vh",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "#0f172a",
-              color: "#f1f5f9",
-              fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-            }}
-          >
-            Loading...
-          </div>
+          <PageLoader />
         }
       >
         <Routes>
@@ -68,6 +58,14 @@ function Root() {
             element={
               <AdminRoute>
                 <AdminQuestionManager />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/dashboard/internal/discussions"
+            element={
+              <AdminRoute>
+                <AdminDiscussionReports />
               </AdminRoute>
             }
           />
