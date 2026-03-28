@@ -8,6 +8,7 @@ import { executeCode } from "../utils/executeCode";
 import { recordLocalLeaderboardActivity } from "../utils/leaderboardActivity";
 import { API_BASE_URL } from "../config/api";
 import { isAuthError, redirectToLogin, validateStoredSession } from "../utils/authSession";
+import { applySubmissionProgress, readUserProgress } from "../utils/performanceProgress";
 import UserTopNav from "../components/UserTopNav";
 import PageLoader from "../components/PageLoader";
 
@@ -32,20 +33,24 @@ function QuestionDetail() {
   const [revealedHints, setRevealedHints] = useState([]);
   const [areHintsVisible, setAreHintsVisible] = useState(false);
   const [solvedQuestions, setSolvedQuestions] = useState(() => {
-    const stored = localStorage.getItem("debugQuestSolvedQuestions");
-    return stored ? JSON.parse(stored) : [];
+    const username = localStorage.getItem("username") || "";
+    return readUserProgress(username, "solvedQuestions", []);
   });
   const [accuracyStats, setAccuracyStats] = useState(() => {
-    const stored = localStorage.getItem("debugQuestAccuracyStats");
-    return stored ? JSON.parse(stored) : { total: 0, correct: 0 };
+    const username = localStorage.getItem("username") || "";
+    return readUserProgress(username, "accuracyStats", { total: 0, correct: 0 });
   });
 
   useEffect(() => {
-    localStorage.setItem("debugQuestSolvedQuestions", JSON.stringify(solvedQuestions));
+    const username = localStorage.getItem("username") || "";
+    if (!username) return;
+    localStorage.setItem(`debugQuest:${username}:solvedQuestions`, JSON.stringify(solvedQuestions));
   }, [solvedQuestions]);
 
   useEffect(() => {
-    localStorage.setItem("debugQuestAccuracyStats", JSON.stringify(accuracyStats));
+    const username = localStorage.getItem("username") || "";
+    if (!username) return;
+    localStorage.setItem(`debugQuest:${username}:accuracyStats`, JSON.stringify(accuracyStats));
   }, [accuracyStats]);
 
   const [chatMessages, setChatMessages] = useState([
@@ -233,37 +238,23 @@ function QuestionDetail() {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      if (typeof res.data?.message === "string" && res.data.message.includes("Correct")) {
+      const isCorrect = res.data?.isCorrect === true;
+      const pointsDelta = Number(res.data?.pointsDelta || 0);
+      const username = localStorage.getItem("username") || "";
+
+      if (isCorrect) {
         recordLocalLeaderboardActivity();
         setAccuracyStats(prev => ({ total: prev.total + 1, correct: prev.correct + 1 }));
         setSolvedQuestions(prev => prev.includes(question._id) ? prev : [...prev, question._id]);
-
-        // Update Performance Chart State
-        const currentScoreStr = localStorage.getItem("debugQuestPerformanceScore");
-        const currentScore = currentScoreStr ? parseInt(currentScoreStr, 10) : 100;
-        const newScore = currentScore + 10;
-        localStorage.setItem("debugQuestPerformanceScore", newScore.toString());
-        
-        const historyStr = localStorage.getItem("debugQuestPerformanceHistory");
-        let hist = [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: currentScore }];
-        if (historyStr) { try { hist = JSON.parse(historyStr); } catch (e) {} }
-        hist.push({ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: newScore });
-        localStorage.setItem("debugQuestPerformanceHistory", JSON.stringify(hist.slice(-9)));
-
       } else {
         setAccuracyStats(prev => ({ total: prev.total + 1, correct: prev.correct }));
-        // Wrong submission Performance Chart State
-        const currentScoreStr = localStorage.getItem("debugQuestPerformanceScore");
-        const currentScore = currentScoreStr ? parseInt(currentScoreStr, 10) : 100;
-        const newScore = Math.max(0, currentScore - 2);
-        localStorage.setItem("debugQuestPerformanceScore", newScore.toString());
-        
-        const historyStr = localStorage.getItem("debugQuestPerformanceHistory");
-        let hist = [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: currentScore }];
-        if (historyStr) { try { hist = JSON.parse(historyStr); } catch (e) {} }
-        hist.push({ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: newScore });
-        localStorage.setItem("debugQuestPerformanceHistory", JSON.stringify(hist.slice(-9)));
       }
+
+      applySubmissionProgress(username, {
+        pointsDelta,
+        isCorrect,
+        questionId: isCorrect ? question._id : "",
+      });
       alert(res.data.message);
     } catch (_err) {
       if (isAuthError(_err)) {

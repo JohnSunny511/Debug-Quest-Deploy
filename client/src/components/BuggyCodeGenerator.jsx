@@ -6,6 +6,7 @@ import { API_BASE_URL } from "../config/api";
 import { redirectToLogin } from "../utils/authSession";
 import UserTopNav from "./UserTopNav";
 import { recordLocalLeaderboardActivity } from "../utils/leaderboardActivity";
+import { applySubmissionProgress } from "../utils/performanceProgress";
 
 const AI_API_URL = `${API_BASE_URL}/api/ai/generate`;
 const AI_SUBMIT_URL = `${API_BASE_URL}/api/ai/submit`;
@@ -122,20 +123,14 @@ export default function BuggyCodeGenerator() {
 
       setSubmissionStatus(data?.message || "Submission complete.");
 
-      if (typeof data?.message === "string" && data.message.includes("Correct! Points awarded.")) {
+      if (data?.isCorrect === true) {
         recordLocalLeaderboardActivity();
-
-        const currentScoreStr = localStorage.getItem("debugQuestPerformanceScore");
-        const currentScore = currentScoreStr ? parseInt(currentScoreStr, 10) : 100;
-        const newScore = currentScore + 10;
-        localStorage.setItem("debugQuestPerformanceScore", newScore.toString());
-
-        const historyStr = localStorage.getItem("debugQuestPerformanceHistory");
-        let hist = [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: currentScore }];
-        if (historyStr) { try { hist = JSON.parse(historyStr); } catch (_error) {} }
-        hist.push({ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: newScore });
-        localStorage.setItem("debugQuestPerformanceHistory", JSON.stringify(hist.slice(-9)));
       }
+
+      applySubmissionProgress(localStorage.getItem("username") || "", {
+        pointsDelta: Number(data?.pointsDelta || 0),
+        isCorrect: data?.isCorrect === true,
+      });
     } catch (error) {
       if (String(error?.message || "").includes("401") || String(error?.message || "").includes("403")) {
         redirectToLogin();

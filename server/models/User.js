@@ -19,6 +19,16 @@ const UserSchema = new mongoose.Schema({
     ],
     default: [],
   },
+  challengeProgress: {
+    type: [
+      {
+        challengeKey: { type: String, required: true },
+        failedAttempts: { type: Number, default: 0 },
+        penaltyPoints: { type: Number, default: 0 },
+      },
+    ],
+    default: [],
+  },
 });
 
 // Hash password before saving

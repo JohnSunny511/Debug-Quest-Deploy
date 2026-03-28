@@ -9,28 +9,8 @@ import { API_BASE_URL } from "../config/api";
 import { clearStoredSession, isAuthError, redirectToLogin, validateStoredSession } from "../utils/authSession";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import UserTopNav from "../components/UserTopNav";
+import { createDefaultPerformanceHistory, getUserProgressStorageKey, readUserProgress } from "../utils/performanceProgress";
 import "./Challenges.css";
-
-function createDefaultPerformanceHistory() {
-    return [{ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: 100 }];
-}
-
-function getUserProgressStorageKey(username, key) {
-    return `debugQuest:${username}:${key}`;
-}
-
-function readUserProgress(username, key, fallbackValue) {
-    if (!username) return fallbackValue;
-
-    const stored = localStorage.getItem(getUserProgressStorageKey(username, key));
-    if (!stored) return fallbackValue;
-
-    try {
-        return JSON.parse(stored);
-    } catch (_error) {
-        return fallbackValue;
-    }
-}
 
 function Challenges() {
     const navigate = useNavigate();
@@ -264,23 +244,31 @@ function Challenges() {
             }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            if (typeof res.data?.message === "string" && res.data.message.includes("Correct")) {
+            const isCorrect = res.data?.isCorrect === true;
+            const pointsDelta = Number(res.data?.pointsDelta || 0);
+
+            if (isCorrect) {
                 recordLocalLeaderboardActivity();
                 setAccuracyStats(prev => ({ total: prev.total + 1, correct: prev.correct + 1 }));
                 setSolvedQuestions(prev => prev.includes(question._id) ? prev : [...prev, question._id]);
-                setPerformanceScore(prev => prev + 10);
-                setPerformanceHistory(hist => {
-                    const lastScore = hist[hist.length - 1].score;
-                    const newScore = lastScore + 10;
-                    return [...hist.slice(-9), { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: newScore }];
-                });
             } else {
                 setAccuracyStats(prev => ({ total: prev.total + 1, correct: prev.correct }));
-                setPerformanceScore(prev => Math.max(0, prev - 2));
+            }
+
+            if (pointsDelta !== 0) {
+                setPerformanceScore(prev => Math.max(0, prev + pointsDelta));
                 setPerformanceHistory(hist => {
-                    const lastScore = hist[hist.length - 1].score;
-                    const newScore = Math.max(0, lastScore - 2);
-                    return [...hist.slice(-9), { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }), score: newScore }];
+                    const fallbackHistory = createDefaultPerformanceHistory(performanceScore);
+                    const nextHistory = Array.isArray(hist) && hist.length > 0 ? [...hist] : fallbackHistory;
+                    const currentScore = nextHistory.length > 0
+                        ? Number(nextHistory[nextHistory.length - 1]?.score || performanceScore)
+                        : performanceScore;
+                    const nextScore = Math.max(0, currentScore + pointsDelta);
+                    nextHistory.push({
+                        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: "2-digit", second: "2-digit" }),
+                        score: nextScore
+                    });
+                    return nextHistory.slice(-9);
                 });
             }
             alert(res.data.message);

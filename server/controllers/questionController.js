@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const { z } = require("zod");
 const axios = require("axios");
 const { calculateChangeMetrics, normalizeLanguage } = require("../utils/codeChangeMetrics");
+const { SUCCESS_POINTS, buildFailureScoreUpdate } = require("../utils/scoringPolicy");
 
 const LANGUAGE_CONFIG = {
   python: { version: "3.10.0" },
@@ -235,21 +236,57 @@ exports.submitHandler = async (req, res) => {
       return res.status(404).json({ message: "Question not found" });
     }
 
+    const user = await User.findById(req.user.id).lean();
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
     const executed = await executeSubmissionCode(question.language, code);
     const expectedOutput = await resolveExpectedOutput(question);
     const expectedOutputDisplay = String(question.expected || "").trim() || expectedOutput;
+    const challengeKey = `question:${String(question._id)}`;
 
     if (!executed.succeeded) {
+      const failureUpdate = buildFailureScoreUpdate(user, challengeKey, "runtime");
+
+      await User.findByIdAndUpdate(req.user.id, {
+        $set: {
+          points: failureUpdate.nextPoints,
+          challengeProgress: failureUpdate.challengeProgress,
+        },
+      });
+
       return res.json({
-        message: "Incorrect. Your code did not run successfully.",
+        message:
+          failureUpdate.pointsDelta === 0
+            ? "Incorrect. Your code did not run successfully. First failed attempt on this question is free."
+            : `Incorrect. Your code did not run successfully. ${Math.abs(failureUpdate.pointsDelta)} point(s) deducted.`,
+        isCorrect: false,
+        pointsDelta: failureUpdate.pointsDelta,
+        points: failureUpdate.nextPoints,
         expectedOutput: expectedOutputDisplay,
         actualOutput: executed.output,
       });
     }
 
     if (normalizeOutput(executed.output) !== expectedOutput) {
+      const failureUpdate = buildFailureScoreUpdate(user, challengeKey, "wrong_output");
+
+      await User.findByIdAndUpdate(req.user.id, {
+        $set: {
+          points: failureUpdate.nextPoints,
+          challengeProgress: failureUpdate.challengeProgress,
+        },
+      });
+
       return res.json({
-        message: "Incorrect. Your code ran, but the output did not match the expected output.",
+        message:
+          failureUpdate.pointsDelta === 0
+            ? "Incorrect. Your code ran, but the output did not match the expected output. First failed attempt on this question is free."
+            : `Incorrect. Your code ran, but the output did not match the expected output. ${Math.abs(failureUpdate.pointsDelta)} point(s) deducted.`,
+        isCorrect: false,
+        pointsDelta: failureUpdate.pointsDelta,
+        points: failureUpdate.nextPoints,
         expectedOutput: expectedOutputDisplay,
         actualOutput: executed.output,
       });
@@ -262,6 +299,9 @@ exports.submitHandler = async (req, res) => {
     if (maxChangePercentage !== null && changeMetrics.percentage > maxChangePercentage) {
       return res.json({
         message: `Output matched, but points were not awarded because the change percentage (${changeMetrics.percentage}%) exceeded the allowed limit (${maxChangePercentage}%).`,
+        isCorrect: false,
+        pointsDelta: 0,
+        points: Number(user.points || 0),
         expectedOutput: expectedOutputDisplay,
         actualOutput: executed.output,
         changePercentage: changeMetrics.percentage,
@@ -271,12 +311,6 @@ exports.submitHandler = async (req, res) => {
 
     {
       const today = toLocalDateKey(new Date());
-      const user = await User.findById(req.user.id).lean();
-
-      if (!user) {
-        return res.status(404).json({ message: "User not found." });
-      }
-
       const nextActivity = Array.isArray(user.activity) ? [...user.activity] : [];
       const existingIndex = nextActivity.findIndex((entry) => entry.date === today);
 
@@ -295,11 +329,14 @@ exports.submitHandler = async (req, res) => {
             .sort((a, b) => String(a.date).localeCompare(String(b.date)))
             .slice(-365),
         },
-        $inc: { points: 10 },
+        $inc: { points: SUCCESS_POINTS },
       });
 
       return res.json({
         message: "Correct! Points awarded.",
+        isCorrect: true,
+        pointsDelta: SUCCESS_POINTS,
+        points: Number(user.points || 0) + SUCCESS_POINTS,
         expectedOutput: expectedOutputDisplay,
         actualOutput: executed.output,
         changePercentage: changeMetrics.percentage,
